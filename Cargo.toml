@@ -1,0 +1,20 @@
+[package]
+name = "gli"
+version = "0.1.0"
+edition = "2024"
+description = "git-local-issue: distributed, offline-first issue tracker stored natively in Git"
+license = "GPL-2.0-only"
+repository = "https://github.com/0xheartcode/git-local-issue"
+
+[[bin]]
+name = "gli"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+uuid = { version = "1", features = ["v7"] }
+anyhow = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

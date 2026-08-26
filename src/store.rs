@@ -1,0 +1,117 @@
+//! Write operations: turning intents into op commits on the issue chains.
+//!
+//! This layer composes the [`GitBackend`] seam with the op model and id rules.
+//! Every write reads the current chain to compute the next Lamport clock, mints
+//! a stable op-id, serializes the op to a commit message, commits it onto the
+//! chain tip, and moves the ref with a compare-and-swap.
+
+use crate::cache::read_ops;
+use crate::error::Result;
+use crate::git::{Author, GitBackend};
+use crate::id;
+use crate::model::{Op, OpKind, next_lamport};
+
+/// A handle over a [`GitBackend`] that performs issue writes.
+pub struct Store<'a> {
+    backend: &'a dyn GitBackend,
+}
+
+impl<'a> Store<'a> {
+    pub fn new(backend: &'a dyn GitBackend) -> Store<'a> {
+        Store { backend }
+    }
+
+    /// The git identity to stamp on commits, resolved from git config with
+    /// sensible fallbacks so writes work on a bare-configured repo.
+    pub fn author(&self) -> Author {
+        let email = self
+            .backend
+            .config("user.email")
+            .unwrap_or_else(|| "gli@localhost".to_string());
+        let name = self.backend.config("user.name").unwrap_or_else(|| {
+            email
+                .split('@')
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("gli")
+                .to_string()
+        });
+        Author { name, email }
+    }
+
+    /// The actor slug that namespaces this identity's display numbers.
+    pub fn actor_slug(&self) -> String {
+        if let Some(name) = self.backend.config("user.name") {
+            return id::actor_slug(&name);
+        }
+        if let Some(email) = self.backend.config("user.email") {
+            let local = email.split('@').next().unwrap_or(&email);
+            return id::actor_slug(local);
+        }
+        id::actor_slug("anon")
+    }
+
+    /// Create a new issue and return its uuid.
+    pub fn create(
+        &self,
+        title: &str,
+        description: &str,
+        labels: Vec<String>,
+        assignee: Option<String>,
+        priority: Option<String>,
+    ) -> Result<String> {
+        for label in &labels {
+            crate::model::validate_label(label)?;
+        }
+        let uuid = id::new_uuid();
+        let op = Op::new(
+            id::new_uuid(),
+            1,
+            self.actor_slug(),
+            OpKind::Create {
+                title: title.to_string(),
+                description: description.to_string(),
+                labels,
+                assignee,
+                priority,
+            },
+        );
+        let commit = self
+            .backend
+            .commit_op(None, &op.to_commit_message(), &self.author())?;
+        self.backend.update_ref(&refname(&uuid), &commit, None)?;
+        Ok(uuid)
+    }
+
+    /// Append an operation to an existing issue's chain.
+    pub fn append(&self, uuid: &str, kind: OpKind) -> Result<String> {
+        if let OpKind::AddLabel { label } = &kind {
+            crate::model::validate_label(label)?;
+        }
+        let existing = self.load_ops(uuid)?;
+        let tip = existing.iter().rev().find_map(|op| op.commit.clone());
+        let lamport = next_lamport(&existing);
+        let op = Op::new(id::new_uuid(), lamport, self.actor_slug(), kind);
+        let commit =
+            self.backend
+                .commit_op(tip.as_deref(), &op.to_commit_message(), &self.author())?;
+        self.backend
+            .update_ref(&refname(uuid), &commit, tip.as_deref())?;
+        Ok(commit)
+    }
+
+    /// Read the op log of a single issue by uuid.
+    fn load_ops(&self, uuid: &str) -> Result<Vec<Op>> {
+        for entry in self.backend.list_issue_refs()? {
+            if entry.uuid == uuid {
+                return read_ops(self.backend, &entry.tip);
+            }
+        }
+        Err(crate::error::GliError::UnknownIssue(uuid.to_string()))
+    }
+}
+
+/// The ref name for an issue uuid.
+pub fn refname(uuid: &str) -> String {
+    format!("refs/issues/{uuid}")
+}
