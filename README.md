@@ -95,7 +95,7 @@ log again.
 To back up your issues, bundle the refs:
 
 ```
-git bundle create issues.bundle refs/issues/*
+git bundle create issues.bundle --glob='refs/issues/*'
 ```
 
 ## License

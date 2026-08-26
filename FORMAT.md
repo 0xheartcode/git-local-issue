@@ -23,7 +23,7 @@ operation log with the CRDT rules in this document.
 Nothing else lives under `refs/issues/*`. Backing up an entire tracker is:
 
 ```
-git bundle create issues.bundle refs/issues/*
+git bundle create issues.bundle --glob='refs/issues/*'
 ```
 
 ## 2. The operation chain

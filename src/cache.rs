@@ -72,9 +72,15 @@ impl Cache {
             Resolution::Unique(uuid) => Ok(uuid),
             Resolution::None => Err(GliError::UnknownIssue(query.to_string())),
             Resolution::Ambiguous(candidates) => {
+                // Short prefixes can be identical (same-millisecond UUIDv7s), so
+                // present each candidate as its actor-nonce plus a prefix long
+                // enough to actually distinguish them.
                 let candidates = candidates
                     .iter()
-                    .map(|u| id::short_prefix(u))
+                    .map(|u| {
+                        let nonce = self.display_of(u).nonce;
+                        format!("{nonce} ({})", u.chars().take(16).collect::<String>())
+                    })
                     .collect::<Vec<_>>();
                 Err(GliError::AmbiguousId {
                     query: query.to_string(),

@@ -14,92 +14,158 @@ use clap::{Parser, Subcommand};
     name = "gli",
     version,
     about = "git-local-issue: a distributed, offline-first issue tracker stored natively in Git",
-    long_about = None,
+    long_about = "git-local-issue (gli) stores issues natively in Git under refs/issues/*: no \
+external database, no server. Issues are distributed and offline-first, and sync by ordinary \
+`git push` and `git fetch` (sync itself arrives in v2; this build is the local core).\n\n\
+An <ID> is either an actor-scoped nonce like `alice-3` or a UUIDv7 prefix like `018f2a1c`. \
+Nonces are recomputed on read and may drift; the UUIDv7 (prefix) is the permanent handle.",
+    // Print the version in the help header too (git-bug #1535).
+    help_template = "\
+{name} {version}
+{about-with-newline}
+{usage-heading} {usage}
+
+{all-args}{after-help}",
+    after_help = "EXAMPLES:\n  \
+gli init\n  \
+gli create \"Login button does nothing\" -l bug -p high -a alice\n  \
+gli ls --state open -l bug\n  \
+gli show alice-1\n  \
+gli comment alice-1 \"Reproduced on Firefox\"\n  \
+gli edit alice-1 --desc \"Updated repro steps\" --add-label triaged\n  \
+gli state alice-1 closed --reason \"fixed\" --fixed-by 1a2b3c4\n\n\
+Run `gli <command> --help` for command-specific help.",
 )]
 struct Cli {
     #[command(subcommand)]
     command: Command,
 }
 
+/// Shared explanation of the <ID> argument, used on every command that takes one.
+const ID_HELP: &str = "Issue id: an actor-scoped nonce (e.g. `alice-3`, case-insensitive) or a \
+UUIDv7 prefix (e.g. `018f2a1c`). Prefixes are expanded automatically; an ambiguous prefix lists \
+the candidates so you can retype a longer one.";
+
 #[derive(Subcommand)]
 enum Command {
     /// Set up issue tracking in the current repository.
+    #[command(
+        long_about = "Set up issue tracking in the current repository. Stamps the format \
+version in git config and creates the disposable cache directory under .git/gli. Issues \
+themselves are created lazily by `gli create`; you can run this in any existing git working \
+tree."
+    )]
     Init,
 
     /// Create a new issue.
+    #[command(
+        long_about = "Create a new issue. The issue is minted with a fresh UUIDv7 and a \
+`create` operation commit under refs/issues/<uuid>, and starts in the open state. Labels, \
+assignee and priority are optional and can be changed later with `gli edit`.",
+        after_help = "\
+EXAMPLES:\n  gli create \"Crash on startup\"\n  \
+gli create \"Slow query\" -l perf -l db -p high -a bob -d \"p95 is 3s on /search\""
+    )]
     Create {
-        /// Issue title.
+        /// Issue title (a short one-line summary).
         title: String,
-        /// Add a label (repeatable).
+        /// Add a label; repeat -l for several (labels cannot contain commas).
         #[arg(short = 'l', long = "label")]
         label: Vec<String>,
-        /// Assign to someone.
+        /// Assign the issue to someone (free-form name or handle).
         #[arg(short = 'a', long = "assignee")]
         assignee: Option<String>,
-        /// Set a priority.
+        /// Set a priority (free-form, e.g. low|medium|high).
         #[arg(short = 'p', long = "priority")]
         priority: Option<String>,
-        /// Description body.
+        /// Longer description body (may be multiple lines).
         #[arg(short = 'd', long = "desc")]
         desc: Option<String>,
     },
 
     /// List issues.
-    #[command(visible_alias = "list")]
+    #[command(
+        visible_alias = "list",
+        long_about = "List issues, newest first. Without filters \
+it shows every issue. `--format full` adds assignee, priority, labels and comment counts."
+    )]
     Ls {
-        /// Filter by state (open|closed).
-        #[arg(long)]
+        /// Only show issues in this state: open or closed.
+        #[arg(long, value_name = "open|closed")]
         state: Option<String>,
-        /// Filter by label.
+        /// Only show issues carrying this label.
         #[arg(short = 'l', long = "label")]
         label: Option<String>,
-        /// Output detail (short|full).
-        #[arg(long, default_value = "short")]
+        /// Output detail: short (one line each) or full.
+        #[arg(long, default_value = "short", value_name = "short|full")]
         format: String,
     },
 
     /// Show one issue with its comments.
+    #[command(
+        long_about = "Show one issue in full: title, state, assignee, priority, labels, \
+description, and every comment in order."
+    )]
     Show {
-        /// Issue id: actor-nonce (alice-3) or a uuid prefix.
+        #[arg(long_help = ID_HELP)]
         id: String,
     },
 
     /// Add a comment to an issue.
+    #[command(
+        long_about = "Add a comment to an issue. Comments are a grow-only log: each gets \
+a stable id so it never duplicates or reorders, even after a future sync."
+    )]
     Comment {
-        /// Issue id.
+        #[arg(long_help = ID_HELP)]
         id: String,
-        /// Comment text.
+        /// The comment text (quote it if it contains spaces).
         text: String,
     },
 
     /// Edit an issue's fields.
+    #[command(
+        long_about = "Edit an issue's fields. Any combination of flags may be given; each \
+becomes its own operation. Editing the description (--desc) is supported, not just the title \
+(git-bug #1488).",
+        after_help = "EXAMPLES:\n  gli edit alice-1 --title \"Clearer title\"\n  \
+gli edit alice-1 --add-label triaged --remove-label needs-info\n  \
+gli edit alice-1 -a \"\"   # clear the assignee"
+    )]
     Edit {
-        /// Issue id.
+        #[arg(long_help = ID_HELP)]
         id: String,
-        /// New title.
+        /// Replace the title.
         #[arg(long)]
         title: Option<String>,
-        /// New description body.
+        /// Replace the description body.
         #[arg(long = "desc")]
         desc: Option<String>,
-        /// Add a label (repeatable).
+        /// Add a label; repeat for several.
         #[arg(long = "add-label")]
         add_label: Vec<String>,
-        /// Remove a label (repeatable).
+        /// Remove a label; repeat for several.
         #[arg(long = "remove-label")]
         remove_label: Vec<String>,
-        /// Set the assignee (empty string clears it).
+        /// Set the assignee; pass an empty string ("") to clear it.
         #[arg(short = 'a', long = "assignee")]
         assignee: Option<String>,
     },
 
     /// Open or close an issue.
+    #[command(
+        long_about = "Open or close an issue, optionally recording why and the commit that \
+fixed it.",
+        after_help = "EXAMPLES:\n  gli state alice-1 closed --reason \"duplicate of alice-2\"\n  \
+gli state alice-1 closed --fixed-by 1a2b3c4\n  gli state alice-1 open"
+    )]
     State {
-        /// Issue id.
+        #[arg(long_help = ID_HELP)]
         id: String,
-        /// Target state (open|closed).
+        /// Target state: open or closed.
+        #[arg(value_name = "open|closed")]
         state: String,
-        /// Reason for the state change.
+        /// Free-text reason for the change.
         #[arg(long)]
         reason: Option<String>,
         /// Commit sha that fixed the issue.
@@ -108,9 +174,19 @@ enum Command {
     },
 
     /// Repository health: renumber notices, integrity, and local-only issues.
+    #[command(
+        long_about = "Report repository health: total open/closed counts, whether any \
+display numbers may drift, and which issues have local commits not yet on a remote (git-bug \
+#1566). Read-only."
+    )]
     Status,
 
     /// Validate issue data integrity.
+    #[command(
+        long_about = "Validate issue data integrity: every chain has exactly one root \
+Create, ops parse, op-ids are unique, and the log folds cleanly. Exits non-zero if any problem \
+is found. Read-only."
+    )]
     Fsck,
 }
 
@@ -179,7 +255,7 @@ fn cmd_init() -> Result<i32> {
     let _ = std::fs::create_dir_all(&cache_dir);
     println!("Initialized gli issue tracking in {}", root.display());
     println!("Issues live under refs/issues/*. Back them up with:");
-    println!("  git bundle create issues.bundle refs/issues/*");
+    println!("  git bundle create issues.bundle --glob='refs/issues/*'");
     Ok(0)
 }
 
@@ -451,7 +527,7 @@ fn cmd_status() -> Result<i32> {
     if remote_refs.is_empty() {
         println!("Sync: no remote issue refs found. All {total} issue(s) are local-only.");
         println!(
-            "      (Push/fetch sync arrives in v2; back up with `git bundle create issues.bundle refs/issues/*`.)"
+            "      (Push/fetch sync arrives in v2; back up with `git bundle create issues.bundle --glob='refs/issues/*'`.)"
         );
     } else {
         let synced: std::collections::HashSet<String> =

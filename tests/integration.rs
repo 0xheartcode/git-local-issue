@@ -337,6 +337,84 @@ fn forward_compat_unknown_trailers_and_higher_version_are_read() {
 }
 
 #[test]
+fn documented_bundle_backup_and_restore_round_trips() {
+    // Lock the exact backup command gli prints. A shell glob `refs/issues/*`
+    // does NOT work (git resolves zero refs and refuses); the --glob form does.
+    let repo = new_repo("Alice", "alice@example.com");
+    let store = Store::new(&repo.backend);
+    let uuid = store
+        .create(
+            "Precious",
+            "do not lose me",
+            vec!["keep".into()],
+            None,
+            None,
+        )
+        .unwrap();
+    store
+        .append(
+            &uuid,
+            OpKind::Comment {
+                text: "backed up".into(),
+            },
+        )
+        .unwrap();
+
+    let bundle = repo._dir.path().join("issues.bundle");
+    let bundle_str = bundle.to_str().unwrap();
+    git(
+        repo._dir.path(),
+        &["bundle", "create", bundle_str, "--glob=refs/issues/*"],
+    );
+    assert!(bundle.exists(), "bundle was created");
+
+    // Restore into a brand-new repo and read the issue back.
+    let restored = TempDir::new().unwrap();
+    git(restored.path(), &["init", "-q"]);
+    git(
+        restored.path(),
+        &["fetch", bundle_str, "refs/issues/*:refs/issues/*"],
+    );
+    let backend = CliBackend::discover(restored.path()).unwrap();
+    let cache = Cache::build(&backend).unwrap();
+    let issue = cache.issue(&uuid).expect("issue restored from bundle");
+    assert_eq!(issue.title(), "Precious");
+    assert_eq!(issue.comments.len(), 1);
+}
+
+#[test]
+fn ambiguous_prefix_lists_distinguishable_candidates() {
+    // Two issues sharing an 8-char short prefix must still be told apart in the
+    // error: the candidate list carries the actor-nonce plus a longer prefix.
+    let repo = new_repo("Alice", "alice@example.com");
+    let dir = repo._dir.path();
+    let tree = run_out(dir, &["hash-object", "-t", "tree", "--stdin"], Some(""));
+    for (i, uuid) in [
+        "018fabcd0000000000000000000000a1",
+        "018fabcd0000000000000000000000b2",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let msg = format!(
+            "Create: I{i}\n\nTitle: I{i}\nOp: create\nOp-Id: {uuid}\nLamport: 1\nActor: alice\nFormat-Version: 1\n"
+        );
+        let commit = run_out(dir, &["commit-tree", tree.trim()], Some(&msg));
+        git(
+            dir,
+            &["update-ref", &format!("refs/issues/{uuid}"), commit.trim()],
+        );
+    }
+
+    let cache = Cache::build(&repo.backend).unwrap();
+    let err = cache.resolve("018fabcd").unwrap_err().to_string();
+    assert!(err.contains("ambiguous"), "got: {err}");
+    // Both actor-nonces appear so the user can pick.
+    assert!(err.contains("alice-1"), "got: {err}");
+    assert!(err.contains("alice-2"), "got: {err}");
+}
+
+#[test]
 fn fsck_passes_on_healthy_issues() {
     let repo = new_repo("Alice", "alice@example.com");
     let store = Store::new(&repo.backend);
