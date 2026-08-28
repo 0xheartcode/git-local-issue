@@ -1,9 +1,9 @@
 //! Build script: stamp the version string with the git commit for `--version`.
 //!
-//! We embed the short commit SHA and the COMMIT date (not a wall-clock build
-//! time), so the stamp is deterministic per commit and builds stay reproducible.
-//! When `.git` is unavailable (for example a crates.io tarball), we fall back to
-//! the plain crate version.
+//! We embed the short commit SHA and the COMMIT timestamp (git `%cI`, strict
+//! ISO 8601, not a wall-clock build time), so the stamp is deterministic per
+//! commit and builds stay reproducible. When `.git` is unavailable (for example
+//! a crates.io tarball), we fall back to the plain crate version.
 
 use std::process::Command;
 
@@ -13,10 +13,12 @@ fn main() {
 
     let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
     let sha = git(&["rev-parse", "--short=10", "HEAD"]);
-    let date = git(&["show", "-s", "--format=%cd", "--date=short", "HEAD"]);
+    // %cI is the committer date in strict ISO 8601 (date, time, and offset),
+    // fixed per commit. No sub-second noise.
+    let timestamp = git(&["show", "-s", "--format=%cI", "HEAD"]);
 
-    let full = match (sha, date) {
-        (Some(sha), Some(date)) => format!("{version} ({sha} {date})"),
+    let full = match (sha, timestamp) {
+        (Some(sha), Some(ts)) => format!("{version} ({sha} {ts})"),
         (Some(sha), None) => format!("{version} ({sha})"),
         _ => version,
     };
