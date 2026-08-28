@@ -63,6 +63,22 @@ Purely additive command surface. Breaks nobody.
 Note: most of these landed early, in the same release line as 0.1.0, since
 nothing has been published yet.
 
+### Optional metadata layer (done)
+
+An open, extensible metadata layer over the stable core (title, state, labels,
+assignees). All optional, unenforced, additive, and folding under existing CRDT
+semantics, so `Format-Version` stays at 1.
+
+- [x] **Multiple assignees** (S). Assignees are now an OR-Set (an issue can have
+  several). `edit --add-assignee`/`--remove-assignee` (repeatable); `-a` sets the
+  sole assignee. `ls --assignee X` matches any member.
+- [x] **Generic custom fields** (S). `field set|get|rm|list <id> [key] [value]`:
+  free-form key/value metadata, one value per key, LWW per key (a single generic
+  mechanism instead of one hardcoded field per concept).
+- [x] **Related files with editable notes** (S). `file add|note|rm|list`: an
+  OR-Set of repo-relative paths, each with an optional LWW note you can edit.
+  Metadata pointers, not attachments.
+
 - [x] **B6. `rm` / archive** (S). Tombstone op to delete or hide a mistaken issue.
   (done) `archive`/`restore` are a soft, reversible `set-archived` op (folds LWW);
   `rm` is an alias; `--purge` deletes the ref irreversibly.

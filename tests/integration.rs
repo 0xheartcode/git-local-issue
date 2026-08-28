@@ -53,7 +53,7 @@ fn create_then_read_back_state() {
     let issue = cache.issue(&uuid).expect("issue exists");
     assert_eq!(issue.title(), "First bug");
     assert_eq!(issue.description(), "It is broken.");
-    assert_eq!(issue.assignee(), Some("bob"));
+    assert_eq!(issue.assignee().as_deref(), Some("bob"));
     assert_eq!(issue.priority(), Some("high"));
     assert_eq!(
         issue.labels(),

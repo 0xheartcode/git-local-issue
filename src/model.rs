@@ -93,6 +93,36 @@ pub enum OpKind {
     SetArchived {
         archived: bool,
     },
+    // --- optional metadata layer (all unenforced) ---
+    /// Add an assignee (OR-Set; issues support multiple assignees).
+    AddAssignee {
+        assignee: String,
+    },
+    /// Remove an assignee (OR-Set).
+    RemoveAssignee {
+        assignee: String,
+    },
+    /// Set or clear a custom field (LWW-Register per key; empty value clears).
+    /// One generic mechanism for milestone, type, severity, due-date, etc.
+    SetField {
+        key: String,
+        value: String,
+    },
+    /// Attach a related file path with an optional note (OR-Set of paths plus
+    /// an LWW note per path).
+    AddFile {
+        path: String,
+        note: String,
+    },
+    /// Detach a related file path (OR-Set remove).
+    RemoveFile {
+        path: String,
+    },
+    /// Edit the note on an already-attached file path (LWW note per path).
+    SetFileNote {
+        path: String,
+        note: String,
+    },
 }
 
 impl OpKind {
@@ -109,6 +139,12 @@ impl OpKind {
             OpKind::AddLabel { .. } => "add-label",
             OpKind::RemoveLabel { .. } => "remove-label",
             OpKind::SetArchived { .. } => "set-archived",
+            OpKind::AddAssignee { .. } => "add-assignee",
+            OpKind::RemoveAssignee { .. } => "remove-assignee",
+            OpKind::SetField { .. } => "set-field",
+            OpKind::AddFile { .. } => "add-file",
+            OpKind::RemoveFile { .. } => "remove-file",
+            OpKind::SetFileNote { .. } => "set-file-note",
         }
     }
 }
@@ -166,6 +202,18 @@ impl Op {
             OpKind::SetArchived { archived } => {
                 if *archived { "Archive" } else { "Restore" }.to_string()
             }
+            OpKind::AddAssignee { assignee } => format!("Add assignee: {assignee}"),
+            OpKind::RemoveAssignee { assignee } => format!("Remove assignee: {assignee}"),
+            OpKind::SetField { key, value } => {
+                if value.is_empty() {
+                    format!("Clear field: {key}")
+                } else {
+                    format!("Set field: {key}")
+                }
+            }
+            OpKind::AddFile { path, .. } => format!("Add file: {path}"),
+            OpKind::RemoveFile { path } => format!("Remove file: {path}"),
+            OpKind::SetFileNote { path, .. } => format!("Set file note: {path}"),
         }
     }
 
@@ -175,6 +223,8 @@ impl Op {
             OpKind::Create { description, .. } if !description.is_empty() => Some(description),
             OpKind::Comment { text } => Some(text),
             OpKind::SetDescription { description } => Some(description),
+            OpKind::AddFile { note, .. } if !note.is_empty() => Some(note),
+            OpKind::SetFileNote { note, .. } if !note.is_empty() => Some(note),
             _ => None,
         }
     }
@@ -227,6 +277,16 @@ impl Op {
             OpKind::SetArchived { archived } => {
                 t.push("Archived", if *archived { "true" } else { "false" })
             }
+            OpKind::AddAssignee { assignee } | OpKind::RemoveAssignee { assignee } => {
+                t.push("Assignee", assignee)
+            }
+            OpKind::SetField { key, value } => {
+                t.push("Field-Key", key);
+                t.push("Field-Value", value);
+            }
+            OpKind::AddFile { path, .. }
+            | OpKind::RemoveFile { path }
+            | OpKind::SetFileNote { path, .. } => t.push("Path", path),
             OpKind::Comment { .. } | OpKind::SetDescription { .. } => {}
         }
         t.push("Op", self.kind.slug());
@@ -320,6 +380,39 @@ impl Op {
                 // the op only exists to change the bit, and true is its usual intent.
                 archived: get("Archived").map(|v| v.trim() == "true").unwrap_or(true),
             },
+            "add-assignee" => OpKind::AddAssignee {
+                assignee: get("Assignee")
+                    .ok_or_else(|| malformed("add-assignee has no Assignee trailer"))?
+                    .to_string(),
+            },
+            "remove-assignee" => OpKind::RemoveAssignee {
+                assignee: get("Assignee")
+                    .ok_or_else(|| malformed("remove-assignee has no Assignee trailer"))?
+                    .to_string(),
+            },
+            "set-field" => OpKind::SetField {
+                key: get("Field-Key")
+                    .ok_or_else(|| malformed("set-field has no Field-Key trailer"))?
+                    .to_string(),
+                value: get("Field-Value").unwrap_or("").to_string(),
+            },
+            "add-file" => OpKind::AddFile {
+                path: get("Path")
+                    .ok_or_else(|| malformed("add-file has no Path trailer"))?
+                    .to_string(),
+                note: body.clone(),
+            },
+            "remove-file" => OpKind::RemoveFile {
+                path: get("Path")
+                    .ok_or_else(|| malformed("remove-file has no Path trailer"))?
+                    .to_string(),
+            },
+            "set-file-note" => OpKind::SetFileNote {
+                path: get("Path")
+                    .ok_or_else(|| malformed("set-file-note has no Path trailer"))?
+                    .to_string(),
+                note: body.clone(),
+            },
             other => return Err(malformed(&format!("unknown Op type '{other}'"))),
         };
 
@@ -406,6 +499,13 @@ impl OrSet {
         self.tags.remove(element);
     }
 
+    /// Remove every element (a linear-chain clear, used for legacy
+    /// single-assignee `set-assignee None`). Concurrent-merge nuance is deferred
+    /// with sync, matching label removes.
+    pub fn clear(&mut self) {
+        self.tags.clear();
+    }
+
     pub fn contains(&self, element: &str) -> bool {
         self.tags.get(element).is_some_and(|t| !t.is_empty())
     }
@@ -416,6 +516,40 @@ impl OrSet {
             .iter()
             .filter(|(_, tags)| !tags.is_empty())
             .map(|(el, _)| el.clone())
+            .collect()
+    }
+}
+
+/// A map of keys to LWW-Register string values. Used for custom fields (key =
+/// field name) and file notes (key = path). An empty value marks the key
+/// cleared, so it is filtered from [`entries`](Self::entries).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LwwMap {
+    inner: BTreeMap<String, Lww<String>>,
+}
+
+impl LwwMap {
+    pub fn apply(&mut self, key: &str, value: String, lamport: u64, op_id: &str) {
+        self.inner
+            .entry(key.to_string())
+            .or_default()
+            .apply(value, lamport, op_id);
+    }
+
+    /// The current value for a key, or `None` if unset or cleared (empty).
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.inner
+            .get(key)
+            .filter(|l| l.is_set() && !l.get().is_empty())
+            .map(|l| l.get().as_str())
+    }
+
+    /// All present (non-empty) key/value pairs, sorted by key.
+    pub fn entries(&self) -> Vec<(String, String)> {
+        self.inner
+            .iter()
+            .filter(|(_, l)| l.is_set() && !l.get().is_empty())
+            .map(|(k, l)| (k.clone(), l.get().clone()))
             .collect()
     }
 }
@@ -460,12 +594,20 @@ pub struct Issue {
     pub title: Lww<String>,
     pub description: Lww<String>,
     pub state: Lww<StateVal>,
-    pub assignee: Lww<Option<String>>,
+    /// Assignees, an OR-Set (issues can have several). Legacy single-assignee
+    /// ops fold into this set.
+    pub assignees: OrSet,
     pub priority: Lww<Option<String>>,
     pub labels: OrSet,
     pub comments: Vec<Comment>,
     /// Whether the issue is archived (hidden from default listings).
     pub archived: Lww<bool>,
+    /// Custom fields (key -> LWW value): milestone, type, severity, etc.
+    pub fields: LwwMap,
+    /// Related file paths (OR-Set presence).
+    pub files: OrSet,
+    /// Optional note per related file path (LWW).
+    pub file_notes: LwwMap,
     /// Actor that created the issue (namespaces its display number).
     pub creator: String,
     pub created_at: Option<i64>,
@@ -496,11 +638,14 @@ impl Issue {
             title: Lww::default(),
             description: Lww::default(),
             state: Lww::default(),
-            assignee: Lww::default(),
+            assignees: OrSet::default(),
             priority: Lww::default(),
             labels: OrSet::default(),
             comments: Vec::new(),
             archived: Lww::default(),
+            fields: LwwMap::default(),
+            files: OrSet::default(),
+            file_notes: LwwMap::default(),
             creator: create.actor.clone(),
             created_at: create.timestamp,
             op_count: ordered.len(),
@@ -526,7 +671,7 @@ impl Issue {
                         issue.labels.add(label, &op.id);
                     }
                     if let Some(a) = assignee {
-                        issue.assignee.apply(Some(a.clone()), op.lamport, &op.id);
+                        issue.assignees.add(a, &op.id);
                     }
                     if let Some(p) = priority {
                         issue.priority.apply(Some(p.clone()), op.lamport, &op.id);
@@ -559,9 +704,11 @@ impl Issue {
                     op.lamport,
                     &op.id,
                 ),
-                OpKind::SetAssignee { assignee } => {
-                    issue.assignee.apply(assignee.clone(), op.lamport, &op.id)
-                }
+                OpKind::SetAssignee { assignee } => match assignee {
+                    // Legacy single-assignee: Some seeds the set, None clears it.
+                    Some(a) => issue.assignees.add(a, &op.id),
+                    None => issue.assignees.clear(),
+                },
                 OpKind::SetPriority { priority } => {
                     issue.priority.apply(priority.clone(), op.lamport, &op.id)
                 }
@@ -569,6 +716,25 @@ impl Issue {
                 OpKind::RemoveLabel { label } => issue.labels.remove(label),
                 OpKind::SetArchived { archived } => {
                     issue.archived.apply(*archived, op.lamport, &op.id)
+                }
+                OpKind::AddAssignee { assignee } => issue.assignees.add(assignee, &op.id),
+                OpKind::RemoveAssignee { assignee } => issue.assignees.remove(assignee),
+                OpKind::SetField { key, value } => {
+                    issue.fields.apply(key, value.clone(), op.lamport, &op.id)
+                }
+                OpKind::AddFile { path, note } => {
+                    issue.files.add(path, &op.id);
+                    if !note.is_empty() {
+                        issue
+                            .file_notes
+                            .apply(path, note.clone(), op.lamport, &op.id);
+                    }
+                }
+                OpKind::RemoveFile { path } => issue.files.remove(path),
+                OpKind::SetFileNote { path, note } => {
+                    issue
+                        .file_notes
+                        .apply(path, note.clone(), op.lamport, &op.id)
                 }
             }
         }
@@ -595,8 +761,31 @@ impl Issue {
         self.state.get()
     }
 
-    pub fn assignee(&self) -> Option<&str> {
-        self.assignee.get().as_deref()
+    /// The first assignee, for compact/legacy single-assignee display.
+    pub fn assignee(&self) -> Option<String> {
+        self.assignees.values().into_iter().next()
+    }
+
+    /// All assignees (sorted).
+    pub fn assignees(&self) -> Vec<String> {
+        self.assignees.values()
+    }
+
+    /// Present custom fields as sorted (key, value) pairs.
+    pub fn fields(&self) -> Vec<(String, String)> {
+        self.fields.entries()
+    }
+
+    /// Related files as (path, optional note), sorted by path.
+    pub fn files(&self) -> Vec<(String, Option<String>)> {
+        self.files
+            .values()
+            .into_iter()
+            .map(|p| {
+                let note = self.file_notes.get(&p).map(str::to_string);
+                (p, note)
+            })
+            .collect()
     }
 
     pub fn priority(&self) -> Option<&str> {
@@ -901,7 +1090,7 @@ mod tests {
         let issue = Issue::fold("u", &ops).unwrap();
         assert_eq!(issue.title(), "T");
         assert_eq!(issue.description(), "D");
-        assert_eq!(issue.assignee(), Some("bob"));
+        assert_eq!(issue.assignee().as_deref(), Some("bob"));
         assert_eq!(issue.priority(), Some("high"));
         assert_eq!(issue.labels(), vec!["a".to_string(), "b".to_string()]);
         assert_eq!(issue.state().state, State::Open);
@@ -988,11 +1177,147 @@ mod tests {
             },
             OpKind::SetArchived { archived: true },
             OpKind::SetArchived { archived: false },
+            OpKind::AddAssignee {
+                assignee: "bob".into(),
+            },
+            OpKind::RemoveAssignee {
+                assignee: "carol".into(),
+            },
+            OpKind::SetField {
+                key: "milestone".into(),
+                value: "v0.2".into(),
+            },
+            OpKind::SetField {
+                key: "severity".into(),
+                value: "".into(),
+            },
+            OpKind::AddFile {
+                path: "src/parser.rs".into(),
+                note: "the buggy function is here\nsee line 40".into(),
+            },
+            OpKind::RemoveFile {
+                path: "docs/old.md".into(),
+            },
+            OpKind::SetFileNote {
+                path: "src/parser.rs".into(),
+                note: "updated note".into(),
+            },
         ];
         for (i, kind) in kinds.into_iter().enumerate() {
             let original = op(&format!("op{i}"), (i + 1) as u64, "alice", kind);
             assert_eq!(roundtrip(&original), original, "op #{i} did not round-trip");
         }
+    }
+
+    #[test]
+    fn assignees_are_a_set() {
+        let ops = vec![
+            create("c", 1, "t"),
+            op(
+                "a1",
+                2,
+                "alice",
+                OpKind::AddAssignee {
+                    assignee: "bob".into(),
+                },
+            ),
+            op(
+                "a2",
+                3,
+                "alice",
+                OpKind::AddAssignee {
+                    assignee: "carol".into(),
+                },
+            ),
+            op(
+                "a3",
+                4,
+                "alice",
+                OpKind::RemoveAssignee {
+                    assignee: "bob".into(),
+                },
+            ),
+        ];
+        let issue = Issue::fold("u", &ops).unwrap();
+        assert_eq!(issue.assignees(), vec!["carol".to_string()]);
+    }
+
+    #[test]
+    fn custom_fields_are_lww_and_clearable() {
+        let ops = vec![
+            create("c", 1, "t"),
+            op(
+                "f1",
+                2,
+                "alice",
+                OpKind::SetField {
+                    key: "milestone".into(),
+                    value: "v0.1".into(),
+                },
+            ),
+            op(
+                "f2",
+                3,
+                "alice",
+                OpKind::SetField {
+                    key: "milestone".into(),
+                    value: "v0.2".into(),
+                },
+            ),
+            op(
+                "f3",
+                4,
+                "alice",
+                OpKind::SetField {
+                    key: "severity".into(),
+                    value: "high".into(),
+                },
+            ),
+            op(
+                "f4",
+                5,
+                "alice",
+                OpKind::SetField {
+                    key: "severity".into(),
+                    value: "".into(),
+                },
+            ),
+        ];
+        let issue = Issue::fold("u", &ops).unwrap();
+        assert_eq!(
+            issue.fields(),
+            vec![("milestone".to_string(), "v0.2".to_string())]
+        );
+    }
+
+    #[test]
+    fn files_carry_editable_notes() {
+        let ops = vec![
+            create("c", 1, "t"),
+            op(
+                "x1",
+                2,
+                "alice",
+                OpKind::AddFile {
+                    path: "a.rs".into(),
+                    note: "first".into(),
+                },
+            ),
+            op(
+                "x2",
+                3,
+                "alice",
+                OpKind::SetFileNote {
+                    path: "a.rs".into(),
+                    note: "edited".into(),
+                },
+            ),
+        ];
+        let issue = Issue::fold("u", &ops).unwrap();
+        assert_eq!(
+            issue.files(),
+            vec![("a.rs".to_string(), Some("edited".to_string()))]
+        );
     }
 
     #[test]

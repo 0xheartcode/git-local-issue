@@ -179,9 +179,15 @@ gli edit alice-1 -a \"\"   # clear the assignee"
         /// Remove a label; repeat for several.
         #[arg(long = "remove-label")]
         remove_label: Vec<String>,
-        /// Set the assignee; pass an empty string ("") to clear it.
+        /// Set the sole assignee; pass an empty string ("") to clear all.
         #[arg(short = 'a', long = "assignee")]
         assignee: Option<String>,
+        /// Add an assignee (issues support several); repeat for several.
+        #[arg(long = "add-assignee")]
+        add_assignee: Vec<String>,
+        /// Remove an assignee; repeat for several.
+        #[arg(long = "remove-assignee")]
+        remove_assignee: Vec<String>,
     },
 
     /// Open or close an issue.
@@ -308,6 +314,96 @@ gli completions zsh  > ~/.zfunc/_gli"
 your MANPATH, e.g. gli man > /usr/local/share/man/man1/gli.1"
     )]
     Man,
+
+    /// Get, set, list, or remove custom fields on an issue.
+    #[command(
+        long_about = "Custom fields are optional, free-form key/value metadata on an issue \
+(milestone, type, severity, sprint, anything). Each key holds one value (last write wins). \
+Nothing is enforced.",
+        after_help = "EXAMPLES:\n  gli field set alice-1 milestone v0.2\n  \
+gli field set alice-1 severity high\n  gli field get alice-1 milestone\n  \
+gli field list alice-1\n  gli field rm alice-1 severity"
+    )]
+    Field {
+        #[command(subcommand)]
+        action: FieldAction,
+    },
+
+    /// Attach, detach, annotate, or list related files on an issue.
+    #[command(
+        long_about = "Related files are optional pointers to repo paths relevant to an issue, \
+each with an optional note. They are metadata (pointers), not attachments. `note` edits an \
+existing file's note.",
+        after_help = "EXAMPLES:\n  gli file add alice-1 src/parser.rs -n \"bug is here\"\n  \
+gli file note alice-1 src/parser.rs \"fixed in this file\"\n  gli file list alice-1\n  \
+gli file rm alice-1 src/parser.rs"
+    )]
+    File {
+        #[command(subcommand)]
+        action: FileAction,
+    },
+}
+
+/// Actions for `gli field`.
+#[derive(Subcommand)]
+enum FieldAction {
+    /// Set (or overwrite) a field's value.
+    Set {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        key: String,
+        value: String,
+    },
+    /// Print a field's value (nothing if unset).
+    Get {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        key: String,
+    },
+    /// Remove a field.
+    Rm {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        key: String,
+    },
+    /// List all fields on an issue.
+    List {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+    },
+}
+
+/// Actions for `gli file`.
+#[derive(Subcommand)]
+enum FileAction {
+    /// Attach a related file path (with an optional note).
+    Add {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        path: String,
+        /// Optional note about why the file is relevant.
+        #[arg(short = 'n', long)]
+        note: Option<String>,
+    },
+    /// Edit the note on an already-attached file.
+    Note {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        path: String,
+        /// The new note (empty clears it).
+        note: String,
+    },
+    /// Detach a related file path.
+    Rm {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        path: String,
+    },
+    /// List related files on an issue.
+    List {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+    },
 }
 
 /// Actions for `gli config`.
@@ -391,7 +487,18 @@ fn dispatch(command: Command) -> Result<i32> {
             add_label,
             remove_label,
             assignee,
-        } => cmd_edit(id, title, desc, add_label, remove_label, assignee),
+            add_assignee,
+            remove_assignee,
+        } => cmd_edit(EditArgs {
+            id,
+            title,
+            desc,
+            add_label,
+            remove_label,
+            assignee,
+            add_assignee,
+            remove_assignee,
+        }),
         Command::State {
             id,
             state,
@@ -414,6 +521,8 @@ fn dispatch(command: Command) -> Result<i32> {
             Ok(0)
         }
         Command::Man => cmd_man(),
+        Command::Field { action } => cmd_field(action),
+        Command::File { action } => cmd_file(action),
     }
 }
 
@@ -531,7 +640,7 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
         // Every requested label must be present (AND).
         .filter(|i| args.labels.iter().all(|l| i.labels.contains(l)))
         .filter(|i| match &args.assignee {
-            Some(a) => i.assignee() == Some(a.as_str()),
+            Some(a) => i.assignees().iter().any(|x| x == a),
             None => true,
         })
         .filter(|i| match &args.priority {
@@ -578,8 +687,9 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
                 arch,
                 issue.title()
             );
-            if let Some(a) = issue.assignee() {
-                println!("    assignee: {a}");
+            let assignees = issue.assignees();
+            if !assignees.is_empty() {
+                println!("    assignees: {}", assignees.join(", "));
             }
             if let Some(p) = issue.priority() {
                 println!("    priority: {p}");
@@ -587,6 +697,26 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
             let labels = issue.labels();
             if !labels.is_empty() {
                 println!("    labels: {}", labels.join(", "));
+            }
+            let fields = issue.fields();
+            if !fields.is_empty() {
+                let joined = fields
+                    .iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                println!("    fields: {joined}");
+            }
+            let files = issue.files();
+            if !files.is_empty() {
+                println!(
+                    "    files: {}",
+                    files
+                        .iter()
+                        .map(|(p, _)| p.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
             }
             println!("    comments: {}", issue.comments.len());
         } else {
@@ -686,8 +816,9 @@ fn cmd_show(id: String, ops: bool, json: bool) -> Result<i32> {
         print!(" (fixed-by: {f})");
     }
     println!();
-    if let Some(a) = issue.assignee() {
-        println!("Assignee: {a}");
+    let assignees = issue.assignees();
+    if !assignees.is_empty() {
+        println!("Assignees: {}", assignees.join(", "));
     }
     if let Some(p) = issue.priority() {
         println!("Priority: {p}");
@@ -696,9 +827,22 @@ fn cmd_show(id: String, ops: bool, json: bool) -> Result<i32> {
     if !labels.is_empty() {
         println!("Labels:   {}", labels.join(", "));
     }
+    for (k, v) in issue.fields() {
+        println!("Field:    {k} = {v}");
+    }
     println!("Creator:  {}", issue.creator);
     if issue.archived() {
         println!("Archived: yes");
+    }
+    let files = issue.files();
+    if !files.is_empty() {
+        println!("Files:");
+        for (path, note) in files {
+            match note {
+                Some(n) => println!("  {path}  ({n})"),
+                None => println!("  {path}"),
+            }
+        }
     }
     if !issue.description().is_empty() {
         println!("\n{}", issue.description());
@@ -771,14 +915,29 @@ fn edit_in_editor(template: &str) -> Result<String> {
     Ok(body.trim().to_string())
 }
 
-fn cmd_edit(
+/// Parsed arguments for `edit`, grouped to keep the handler signature small.
+struct EditArgs {
     id: String,
     title: Option<String>,
     desc: Option<String>,
     add_label: Vec<String>,
     remove_label: Vec<String>,
     assignee: Option<String>,
-) -> Result<i32> {
+    add_assignee: Vec<String>,
+    remove_assignee: Vec<String>,
+}
+
+fn cmd_edit(args: EditArgs) -> Result<i32> {
+    let EditArgs {
+        id,
+        title,
+        desc,
+        add_label,
+        remove_label,
+        assignee,
+        add_assignee,
+        remove_assignee,
+    } = args;
     let backend = backend()?;
     let cache = Cache::build(&backend)?;
     let uuid = cache.resolve(&id)?;
@@ -833,15 +992,37 @@ fn cmd_edit(
             },
         )?;
         if cleared {
-            println!("  clear assignee");
+            println!("  clear assignees");
         } else {
-            println!("  set assignee: {a}");
+            println!("  set sole assignee: {a}");
         }
+        applied += 1;
+    }
+    for who in add_assignee {
+        store.append(
+            &uuid,
+            OpKind::AddAssignee {
+                assignee: who.clone(),
+            },
+        )?;
+        println!("  add assignee: {who}");
+        applied += 1;
+    }
+    for who in remove_assignee {
+        store.append(
+            &uuid,
+            OpKind::RemoveAssignee {
+                assignee: who.clone(),
+            },
+        )?;
+        println!("  remove assignee: {who}");
         applied += 1;
     }
 
     if applied == 0 {
-        println!("Nothing to change. Pass --title, --desc, --add-label, --remove-label, or -a.");
+        println!(
+            "Nothing to change. Pass --title, --desc, --add-label, --remove-label, -a, --add-assignee, or --remove-assignee."
+        );
     } else {
         println!("Applied {applied} change(s) to {nonce}");
     }
@@ -1097,5 +1278,113 @@ fn cmd_man() -> Result<i32> {
     let man = clap_mangen::Man::new(Cli::command());
     man.render(&mut std::io::stdout())
         .context("rendering man page")?;
+    Ok(0)
+}
+
+fn cmd_field(action: FieldAction) -> Result<i32> {
+    let backend = backend()?;
+    let cache = Cache::build(&backend)?;
+    let store = Store::new(&backend);
+    match action {
+        FieldAction::Set { id, key, value } => {
+            let uuid = cache.resolve(&id)?;
+            store.append(
+                &uuid,
+                OpKind::SetField {
+                    key: key.clone(),
+                    value: value.clone(),
+                },
+            )?;
+            println!("Set {key} = {value} on {}", cache.display_of(&uuid).nonce);
+        }
+        FieldAction::Get { id, key } => {
+            let uuid = cache.resolve(&id)?;
+            let issue = cache
+                .issue(&uuid)
+                .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
+            if let Some((_, v)) = issue.fields().into_iter().find(|(k, _)| k == &key) {
+                println!("{v}");
+            }
+        }
+        FieldAction::Rm { id, key } => {
+            let uuid = cache.resolve(&id)?;
+            // Clearing = set the field to an empty value.
+            store.append(
+                &uuid,
+                OpKind::SetField {
+                    key: key.clone(),
+                    value: String::new(),
+                },
+            )?;
+            println!("Removed field {key} from {}", cache.display_of(&uuid).nonce);
+        }
+        FieldAction::List { id } => {
+            let uuid = cache.resolve(&id)?;
+            let issue = cache
+                .issue(&uuid)
+                .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
+            let fields = issue.fields();
+            if fields.is_empty() {
+                println!("No fields set.");
+            } else {
+                for (k, v) in fields {
+                    println!("{k} = {v}");
+                }
+            }
+        }
+    }
+    Ok(0)
+}
+
+fn cmd_file(action: FileAction) -> Result<i32> {
+    let backend = backend()?;
+    let cache = Cache::build(&backend)?;
+    let store = Store::new(&backend);
+    match action {
+        FileAction::Add { id, path, note } => {
+            let uuid = cache.resolve(&id)?;
+            store.append(
+                &uuid,
+                OpKind::AddFile {
+                    path: path.clone(),
+                    note: note.unwrap_or_default(),
+                },
+            )?;
+            println!("Attached {path} to {}", cache.display_of(&uuid).nonce);
+        }
+        FileAction::Note { id, path, note } => {
+            let uuid = cache.resolve(&id)?;
+            store.append(
+                &uuid,
+                OpKind::SetFileNote {
+                    path: path.clone(),
+                    note,
+                },
+            )?;
+            println!("Updated note on {path}");
+        }
+        FileAction::Rm { id, path } => {
+            let uuid = cache.resolve(&id)?;
+            store.append(&uuid, OpKind::RemoveFile { path: path.clone() })?;
+            println!("Detached {path} from {}", cache.display_of(&uuid).nonce);
+        }
+        FileAction::List { id } => {
+            let uuid = cache.resolve(&id)?;
+            let issue = cache
+                .issue(&uuid)
+                .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
+            let files = issue.files();
+            if files.is_empty() {
+                println!("No related files.");
+            } else {
+                for (path, note) in files {
+                    match note {
+                        Some(n) => println!("{path}  ({n})"),
+                        None => println!("{path}"),
+                    }
+                }
+            }
+        }
+    }
     Ok(0)
 }

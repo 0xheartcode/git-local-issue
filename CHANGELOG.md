@@ -41,6 +41,27 @@ command changes behaviour, and the on-disk Format-Version stays at `1`.
   unparseable, or will not fold) by moving them to `refs/gli-quarantine/*`. It is
   non-destructive (the commits are preserved) and recovers a repository that a
   single bad ref had otherwise bricked.
+- Multiple assignees. An issue's assignees are now an OR-Set (several allowed),
+  matching GitHub, GitLab, and Gitea, where single-assignee is deprecated. New
+  `gli edit <id> --add-assignee <who>` and `--remove-assignee <who>` (both
+  repeatable). `-a/--assignee` on `edit` now sets the sole assignee (clears the
+  set and sets one, `-a ""` clears all). Legacy single-assignee data still reads
+  correctly, `gli ls --assignee X` matches any member of the set, and `show` and
+  JSON expose an `assignees` array (a first-assignee `assignee` field is kept for
+  compatibility).
+- Generic custom fields: `gli field set|get|rm|list <id> [key] [value]`. Optional,
+  free-form key/value metadata (milestone, type, severity, sprint, anything), one
+  value per key with last write wins. `rm` (or an empty value) clears a key. Shown
+  in `show`, `ls --format full`, and JSON (a `fields` array of [key, value] pairs).
+- Related files with notes: `gli file add <id> <path> [-n note]`,
+  `gli file note <id> <path> <note>` (edits the note), `gli file rm <id> <path>`,
+  and `gli file list <id>`. File presence is an OR-Set of repo-relative paths, each
+  with an optional last-writer-wins note. These are metadata pointers, not
+  attachments. Shown in `show`, `ls --format full`, and JSON (a `files` array of
+  {path, note}).
+
+These metadata additions are optional and unenforced, remain additive, and keep
+the on-disk Format-Version at `1`.
 
 ### Fixed
 

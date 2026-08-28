@@ -51,6 +51,10 @@ fn validate_op(kind: &OpKind) -> Result<()> {
         OpKind::SetTitle { title } => check_size("title", title)?,
         OpKind::SetDescription { description } => check_size("description", description)?,
         OpKind::AddLabel { label } => crate::model::validate_label(label)?,
+        OpKind::SetField { value, .. } => check_size("field value", value)?,
+        OpKind::AddFile { note, .. } | OpKind::SetFileNote { note, .. } => {
+            check_size("file note", note)?
+        }
         _ => {}
     }
     Ok(())

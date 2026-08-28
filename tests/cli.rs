@@ -194,6 +194,67 @@ fn completions_and_man_render() {
 }
 
 #[test]
+fn multiple_assignees_and_metadata_flow() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "Parser crash", "-a", "alice"]);
+
+    // Multiple assignees via edit.
+    gli(
+        dir,
+        &[
+            "edit",
+            "alice-1",
+            "--add-assignee",
+            "bob",
+            "--add-assignee",
+            "carol",
+        ],
+    );
+    gli(dir, &["edit", "alice-1", "--remove-assignee", "alice"]);
+
+    // Custom fields.
+    gli(dir, &["field", "set", "alice-1", "milestone", "v0.2"]);
+    gli(dir, &["field", "set", "alice-1", "severity", "high"]);
+    let (got, ok) = gli(dir, &["field", "get", "alice-1", "milestone"]);
+    assert!(ok && got.trim() == "v0.2", "got: {got}");
+    gli(dir, &["field", "rm", "alice-1", "severity"]);
+
+    // Related files with an editable note.
+    gli(
+        dir,
+        &["file", "add", "alice-1", "src/parser.rs", "-n", "here"],
+    );
+    gli(
+        dir,
+        &["file", "note", "alice-1", "src/parser.rs", "fixed here"],
+    );
+
+    // JSON reflects all of it.
+    let (out, ok) = gli(dir, &["show", "alice-1", "--json"]);
+    assert!(ok);
+    let obj: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let assignees: Vec<String> = obj["assignees"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(assignees, vec!["bob", "carol"]);
+    // Fields: milestone present, severity cleared.
+    let fields = obj["fields"].as_array().unwrap();
+    assert!(fields.iter().any(|f| f[0] == "milestone" && f[1] == "v0.2"));
+    assert!(!fields.iter().any(|f| f[0] == "severity"));
+    // File with its edited note.
+    assert_eq!(obj["files"][0]["path"], "src/parser.rs");
+    assert_eq!(obj["files"][0]["note"], "fixed here");
+
+    // ls --assignee matches any member of the set.
+    let (ls, _) = gli(dir, &["ls", "--assignee", "carol"]);
+    assert!(ls.contains("Parser crash"), "got: {ls}");
+}
+
+#[test]
 fn close_and_reopen_aliases_drive_state() {
     let repo = new_repo();
     let dir = repo.path();
@@ -267,13 +328,13 @@ fn edit_reports_each_applied_change() {
     assert!(out.contains("set title: New"), "got: {out}");
     assert!(out.contains("add label: triaged"), "got: {out}");
     assert!(out.contains("remove label: bug"), "got: {out}");
-    assert!(out.contains("set assignee: bob"), "got: {out}");
+    assert!(out.contains("set sole assignee: bob"), "got: {out}");
     assert!(out.contains("Applied 4 change(s)"), "got: {out}");
 
     // Clearing the assignee reports the clear.
     let (out, ok) = gli(dir, &["edit", "alice-1", "-a", ""]);
     assert!(ok);
-    assert!(out.contains("clear assignee"), "got: {out}");
+    assert!(out.contains("clear assignees"), "got: {out}");
 }
 
 #[test]

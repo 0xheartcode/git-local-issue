@@ -102,6 +102,10 @@ message is a single paragraph, it is treated as subject/body with no trailers.
 | `Reason` | `set-state` | Optional free-text reason. |
 | `Fixed-By` | `set-state` | Optional commit sha that fixed the issue. |
 | `Archived` | `set-archived` | `true` or `false`. |
+| `Assignee` | `add-assignee`, `remove-assignee` | A single assignee element (OR-Set). |
+| `Field-Key` | `set-field` | Custom field name. |
+| `Field-Value` | `set-field` | Custom field value (empty clears the key). |
+| `Path` | `add-file`, `remove-file`, `set-file-note` | A single related file path. |
 
 Custom/experimental trailers SHOULD be prefixed `X-` (for example
 `X-Reactions`). Any unknown trailer MUST be ignored, never rejected.
@@ -120,6 +124,12 @@ Custom/experimental trailers SHOULD be prefixed `X-` (for example
 | `add-label` | label (trailer) | OR-Set add; the add-tag is the op's `Op-Id` |
 | `remove-label` | label (trailer) | OR-Set remove |
 | `set-archived` | archived flag (trailer) | LWW-Register write (hide/restore) |
+| `add-assignee` | assignee (trailer) | OR-Set add (issues allow multiple assignees) |
+| `remove-assignee` | assignee (trailer) | OR-Set remove |
+| `set-field` | key + value (trailers) | LWW-Register per key; empty value clears |
+| `add-file` | path (trailer) + note (body) | OR-Set add of path, LWW note per path |
+| `remove-file` | path (trailer) | OR-Set remove of path |
+| `set-file-note` | path (trailer) + note (body) | LWW note per path (edit) |
 
 ## 6. Folding to current state (CRDT rules)
 
@@ -128,17 +138,25 @@ State is computed by applying operations in causal order, defined as ascending
 tie-break by `Op-Id` keeps the result deterministic across clones once
 concurrent histories merge.
 
-- **Title, description, state, assignee, priority, archived: LWW-Register.** The
-  write with the greatest `(Lamport, Op-Id)` wins. The `Op-Id` tie-break means
-  two writers who happen to share a Lamport value still converge to the same
-  value. `archived` defaults to `false` and is a soft, reversible flag.
-- **Labels: OR-Set (observed-remove).** Each `add-label` contributes a unique
-  add-tag (its `Op-Id`) for that element. An element is present while it has at
-  least one live add-tag. A `remove-label` removes the add-tags it has observed.
-  Re-adding after a remove makes the element present again with a fresh tag.
-  (v1 folds a single linear chain, so a remove clears all currently-live tags
-  for the element; concurrent-merge tombstone handling arrives with sync in v2.
-  The per-add tags already exist, so that is a drop-in, not a format change.)
+- **Title, description, state, priority, archived: LWW-Register.** The write with
+  the greatest `(Lamport, Op-Id)` wins. The `Op-Id` tie-break means two writers
+  who happen to share a Lamport value still converge to the same value.
+  `archived` defaults to `false` and is a soft, reversible flag.
+- **Custom fields: LWW-Register per key.** `set-field` writes are keyed; each key
+  is an independent LWW-Register. An empty value marks the key cleared.
+- **Labels and assignees: OR-Set (observed-remove).** Each `add-label` /
+  `add-assignee` contributes a unique add-tag (its `Op-Id`) for that element. An
+  element is present while it has at least one live add-tag; the matching remove
+  drops the add-tags it has observed, and re-adding gives a fresh tag. Legacy
+  single-assignee ops fold into the assignee set (a `set-assignee` with a value
+  adds it, an empty one clears the set). (v1 folds a single linear chain, so a
+  remove clears the currently-live tags; concurrent-merge tombstone handling
+  arrives with sync in v2. The per-add tags already exist, so that is a drop-in,
+  not a format change.)
+- **Related files: OR-Set of paths plus an LWW note per path.** `add-file` /
+  `remove-file` govern presence; `set-file-note` (and the optional note on
+  `add-file`) is an LWW-Register keyed by path. Files are metadata pointers, not
+  attachments.
 - **Comments: grow-only log.** Every `comment` op is one entry, identified by
   its `Op-Id`. Duplicates (same `Op-Id` seen twice, as a naive sync might
   produce) collapse to one. Display order is `(Lamport, Op-Id)`.

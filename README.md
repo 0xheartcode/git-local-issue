@@ -35,7 +35,9 @@ gli create "title" [-l label] [-a assignee] [-p priority] [-d desc]
 gli ls [--state ...] [-l label ...] [--assignee ...] [--priority ...] [--creator ...] [-s search] [--sort newest|oldest|title] [--archived|--all] [--format short|full|json]   # alias: gli list
 gli show <id> [--json]         # id = actor-nonce OR uuidv7 prefix
 gli comment <id> ["text"]      # no text opens $EDITOR ($VISUAL, then vi)
-gli edit <id> [--title ...] [--desc ...] [--add-label ...] [--remove-label ...] [-a ...]
+gli edit <id> [--title ...] [--desc ...] [--add-label ...] [--remove-label ...] [-a ...] [--add-assignee ...] [--remove-assignee ...]
+gli field set|get|rm|list <id> [key] [value]   # optional free-form key/value metadata
+gli file add|note|rm|list <id> <path> [-n note]   # optional repo-relative file pointers with notes
 gli state <id> open|closed [--reason ...] [--fixed-by <sha>]
 gli archive <id> [--purge]     # soft-hide an issue (alias: gli rm); --purge deletes the ref
 gli restore <id>               # un-archive a soft-hidden issue
@@ -48,6 +50,15 @@ gli --version / --help         # --help also prints the version
 ```
 
 `edit` supports editing the description/body (`--desc`), not just the title.
+
+Assignees are multi-valued: an issue can have several. `--add-assignee` and
+`--remove-assignee` (both repeatable) adjust the set, while `-a/--assignee` sets
+the sole assignee (`-a ""` clears all). `gli ls --assignee X` matches any member
+of the set.
+
+`gli field ...` (custom fields) and `gli file ...` (related-file pointers with
+notes) are optional metadata: free-form and unenforced. Both appear in `show`,
+`ls --format full`, and the JSON output.
 
 `ls` filters all combine with AND: repeatable `-l/--label` (AND), `--assignee`,
 `--priority`, `--creator` (alias `--author`), `-s/--search` (free text over
@@ -81,7 +92,10 @@ wall-clock time), so the model is **CRDT-ready** from the start:
 - Comments are a **grow-only log**.
 - Title, state, and assignee are an **LWW-Register** (last write wins, ordered
   by Lamport clock).
-- Labels are an **OR-Set** (observed-remove set).
+- Labels and assignees are each an **OR-Set** (observed-remove set), so an issue
+  can carry several assignees.
+- Custom fields and related-file notes are **LWW-Registers** per key/path, added
+  or removed via observed-remove membership.
 - Archived is an **LWW-Register**: `gli archive` records a `set-archived`
   operation, so hiding an issue is a soft, reversible tombstone (undone by
   `gli restore`) that merges cleanly. Only `gli archive --purge`, which deletes
@@ -93,6 +107,12 @@ flag is omitted, so an explicit flag always wins.
 
 The CRDT merge algorithm itself lands with sync in a later version, but the
 on-disk model is designed to be CRDT-correct now.
+
+Following the lesson from surveying the GitHub, GitLab, and Gitea issue APIs,
+`gli` keeps a small stable core (title, state, labels, assignees) and puts
+everything flexible into one open, extensible layer (generic custom fields)
+rather than a sprawl of one-off fields. Multiple assignees is the one genuinely
+multi-valued core field all three platforms share.
 
 Identity has two layers. The **truth** is a **UUIDv7** per issue: the ref is
 `refs/issues/<uuidv7>`, which never collides and is time-sortable. The
