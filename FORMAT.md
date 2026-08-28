@@ -26,6 +26,11 @@ Nothing else lives under `refs/issues/*`. Backing up an entire tracker is:
 git bundle create issues.bundle --glob='refs/issues/*'
 ```
 
+`gli fsck --fix` may move a ref that is not a usable issue to
+`refs/gli-quarantine/<uuid>`. That namespace is local recovery scratch: it is
+non-authoritative, is not read as issue data, and is not synced. The commits it
+points at are preserved so a quarantined ref can be inspected or deleted by hand.
+
 ## 2. The operation chain
 
 - Each issue is a linear chain of commits. Each commit is exactly one immutable

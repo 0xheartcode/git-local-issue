@@ -41,7 +41,7 @@ gli archive <id> [--purge]     # soft-hide an issue (alias: gli rm); --purge del
 gli restore <id>               # un-archive a soft-hidden issue
 gli config get|set|list        # per-repo defaults under gli.default.* (priority, assignee, labels, format)
 gli status                     # renumber notices, integrity, and unpushed/local-only issues
-gli fsck                       # validate issue data integrity
+gli fsck [--fix]               # validate integrity; --fix quarantines unusable refs
 gli completions <bash|zsh|fish|powershell|elvish>   # print a shell completion script
 gli man                        # print the man page (roff)
 gli --version / --help         # --help also prints the version

@@ -4,16 +4,52 @@
 //! invariants the model relies on: a single root `Create`, a linear chain,
 //! parseable ops, unique op-ids, and a foldable log. Problems are reported and
 //! cause a non-zero exit; notes are informational.
+//!
+//! Some problems make a ref *unusable*: an empty chain, an unparseable commit,
+//! or a log that will not fold. These also hard-fail `Cache::build`, so a single
+//! bad ref bricks every command. `fsck --fix` [`quarantine`]s such refs (moves
+//! them under `refs/gli-quarantine/`), non-destructively, to restore the tool.
 
 use crate::error::Result;
 use crate::git::GitBackend;
 use crate::model::{Issue, Op, OpKind};
 use std::collections::HashSet;
 
+/// A ref that is not a usable issue and can be safely quarantined.
+pub struct Repair {
+    pub uuid: String,
+    pub tip: String,
+    pub reason: String,
+}
+
 pub struct Report {
     pub issue_count: usize,
     pub notes: Vec<String>,
     pub problems: Vec<String>,
+    pub repairable: Vec<Repair>,
+}
+
+/// The quarantine ref name for an issue uuid.
+pub fn quarantine_ref_name(uuid: &str) -> String {
+    format!("refs/gli-quarantine/{uuid}")
+}
+
+/// Move each repairable ref from `refs/issues/<uuid>` to
+/// `refs/gli-quarantine/<uuid>`, preserving the commits (nothing is deleted).
+/// Returns the human-readable actions taken.
+pub fn quarantine(backend: &dyn GitBackend, repairs: &[Repair]) -> Result<Vec<String>> {
+    let mut actions = Vec::new();
+    for r in repairs {
+        let dest = quarantine_ref_name(&r.uuid);
+        backend.update_ref(&dest, &r.tip, None)?;
+        backend.delete_ref(&crate::store::refname(&r.uuid))?;
+        actions.push(format!(
+            "quarantined {} -> {dest} ({})",
+            crate::id::short_prefix(&r.uuid),
+            r.reason
+        ));
+    }
+    Ok(actions)
 }
 
 pub fn check(backend: &dyn GitBackend) -> Result<Report> {
@@ -21,17 +57,26 @@ pub fn check(backend: &dyn GitBackend) -> Result<Report> {
         issue_count: 0,
         notes: Vec::new(),
         problems: Vec::new(),
+        repairable: Vec::new(),
     };
 
     for entry in backend.list_issue_refs()? {
         report.issue_count += 1;
         let short = crate::id::short_prefix(&entry.uuid);
+        let repairable = |reason: String| Repair {
+            uuid: entry.uuid.clone(),
+            tip: entry.tip.clone(),
+            reason,
+        };
         let commits = backend.read_chain(&entry.tip)?;
 
         if commits.is_empty() {
             report
                 .problems
                 .push(format!("{short}: ref points at an empty chain"));
+            report
+                .repairable
+                .push(repairable("empty chain".to_string()));
             continue;
         }
 
@@ -48,6 +93,9 @@ pub fn check(backend: &dyn GitBackend) -> Result<Report> {
             }
         }
         if !parse_ok {
+            report
+                .repairable
+                .push(repairable("unparseable operation in chain".to_string()));
             continue;
         }
 
@@ -108,9 +156,13 @@ pub fn check(backend: &dyn GitBackend) -> Result<Report> {
             }
         }
 
-        // The log must fold cleanly.
+        // The log must fold cleanly. A fold failure (for example no Create op)
+        // makes the issue unusable, so it is quarantinable.
         if let Err(e) = Issue::fold(&entry.uuid, &ops) {
             report.problems.push(format!("{short}: {e}"));
+            report
+                .repairable
+                .push(repairable("does not fold into a valid issue".to_string()));
         }
     }
 

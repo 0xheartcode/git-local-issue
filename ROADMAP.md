@@ -80,8 +80,10 @@ nothing has been published yet.
   to them unless a flag overrides.
 - [x] **B13. Shell completions + man page** (S). Generated via clap. (done)
   `gli completions <shell>` and `gli man`.
-- [ ] **B4-repair. `fsck --fix`** (M). Repair the auto-resolvable problems fsck
-  currently only reports.
+- [x] **B4-repair. `fsck --fix`** (M). (done) Quarantines refs that are not
+  usable issues (empty chain, unparseable, or will not fold) by moving them to
+  `refs/gli-quarantine/*`. Non-destructive (commits preserved) and recovers a
+  repo that one bad ref had bricked.
 
 ---
 

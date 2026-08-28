@@ -476,6 +476,69 @@ fn fsck_flags_a_chain_with_no_create() {
 }
 
 #[test]
+fn fsck_fix_quarantines_a_bad_ref_and_unbricks_the_tool() {
+    let repo = new_repo("Alice", "alice@example.com");
+    let dir = repo._dir.path();
+    // Two good issues.
+    let store = Store::new(&repo.backend);
+    store.create("Good one", "", vec![], None, None).unwrap();
+    store.create("Good two", "", vec![], None, None).unwrap();
+
+    // Inject a ref that is not a usable issue (no Create op).
+    let bad_uuid = "00000000000000000000000000000bad";
+    let msg =
+        "Comment\n\nhi\n\nOp: comment\nOp-Id: dead\nLamport: 1\nActor: x\nFormat-Version: 1\n";
+    let tree = run_out(dir, &["hash-object", "-t", "tree", "--stdin"], Some(""));
+    let commit = run_out(dir, &["commit-tree", tree.trim()], Some(msg));
+    git(
+        dir,
+        &[
+            "update-ref",
+            &format!("refs/issues/{bad_uuid}"),
+            commit.trim(),
+        ],
+    );
+
+    // The bad ref bricks the whole cache build.
+    assert!(
+        Cache::build(&repo.backend).is_err(),
+        "one bad ref should brick Cache::build"
+    );
+
+    // fsck sees exactly one repairable ref; fix it.
+    let report = gli::fsck::check(&repo.backend).unwrap();
+    assert_eq!(report.repairable.len(), 1);
+    let actions = gli::fsck::quarantine(&repo.backend, &report.repairable).unwrap();
+    assert_eq!(actions.len(), 1);
+
+    // The tool works again and sees the two good issues.
+    let cache = Cache::build(&repo.backend).unwrap();
+    assert_eq!(cache.issues.len(), 2);
+
+    // Non-destructive: the ref moved to quarantine, commit preserved.
+    let quarantined = run_out(
+        dir,
+        &[
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/gli-quarantine/",
+        ],
+        None,
+    );
+    assert!(quarantined.contains(bad_uuid), "got: {quarantined}");
+    // And it no longer lives under refs/issues/.
+    let issues = run_out(
+        dir,
+        &["for-each-ref", "--format=%(refname)", "refs/issues/"],
+        None,
+    );
+    assert!(
+        !issues.contains(bad_uuid),
+        "bad ref should be gone from refs/issues: {issues}"
+    );
+}
+
+#[test]
 fn fsck_flags_duplicate_op_ids() {
     // Two ops sharing an Op-Id violates stable-identity; fsck must catch it.
     let repo = new_repo("Alice", "alice@example.com");

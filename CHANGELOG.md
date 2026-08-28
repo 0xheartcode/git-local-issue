@@ -37,6 +37,10 @@ command changes behaviour, and the on-disk Format-Version stays at `1`.
   (an explicit flag always wins).
 - `gli completions <bash|zsh|fish|powershell|elvish>` prints a shell completion
   script, and `gli man` prints the man page (roff).
+- `gli fsck --fix` quarantines refs that are not usable issues (empty chain,
+  unparseable, or will not fold) by moving them to `refs/gli-quarantine/*`. It is
+  non-destructive (the commits are preserved) and recovers a repository that a
+  single bad ref had otherwise bricked.
 
 ### Fixed
 

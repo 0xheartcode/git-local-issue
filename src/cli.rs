@@ -261,13 +261,21 @@ have local commits not yet on a remote (git-bug #1566). Read-only."
     )]
     Status,
 
-    /// Validate issue data integrity.
+    /// Validate issue data integrity (and optionally repair).
     #[command(
-        long_about = "Validate issue data integrity: every chain has exactly one root \
-Create, ops parse, op-ids are unique, and the log folds cleanly. Exits non-zero if any problem \
-is found. Read-only."
+        long_about = "Validate issue data integrity: every chain has exactly one root Create, \
+ops parse, op-ids are unique, and the log folds cleanly. Exits non-zero if any problem is found. \
+Read-only unless --fix is given.\n\nWith --fix, refs that are not usable issues (empty chain, \
+unparseable, or will not fold) are quarantined: moved to refs/gli-quarantine/* so they stop \
+breaking listings. This is non-destructive (the commits are preserved under the new ref) and \
+recovers a repo that one bad ref had bricked.",
+        after_help = "EXAMPLES:\n  gli fsck          # report only\n  gli fsck --fix    # quarantine unusable refs"
     )]
-    Fsck,
+    Fsck {
+        /// Quarantine unusable refs to refs/gli-quarantine/* (non-destructive).
+        #[arg(long)]
+        fix: bool,
+    },
 
     /// Get, set, or list per-repository defaults.
     #[command(
@@ -399,7 +407,7 @@ fn dispatch(command: Command) -> Result<i32> {
         Command::Archive { id, purge } => cmd_archive(id, purge),
         Command::Restore { id } => cmd_restore(id),
         Command::Status => cmd_status(),
-        Command::Fsck => cmd_fsck(),
+        Command::Fsck { fix } => cmd_fsck(fix),
         Command::Config { action } => cmd_config(action),
         Command::Completions { shell } => {
             cmd_completions(shell);
@@ -1004,12 +1012,28 @@ fn cmd_status() -> Result<i32> {
     Ok(0)
 }
 
-fn cmd_fsck() -> Result<i32> {
+fn cmd_fsck(fix: bool) -> Result<i32> {
     let backend = backend()?;
-    let report = fsck::check(&backend)?;
+    let mut report = fsck::check(&backend)?;
     for line in &report.notes {
         println!("{line}");
     }
+
+    if fix && !report.repairable.is_empty() {
+        let actions = fsck::quarantine(&backend, &report.repairable)?;
+        for action in &actions {
+            println!("fsck: {action}");
+        }
+        println!("fsck: quarantined {} unusable ref(s).", actions.len());
+        // Re-check so the exit code reflects the post-repair state.
+        report = fsck::check(&backend)?;
+    } else if !fix && !report.repairable.is_empty() {
+        println!(
+            "fsck: {} unusable ref(s) can be quarantined with `gli fsck --fix`.",
+            report.repairable.len()
+        );
+    }
+
     if report.problems.is_empty() {
         println!("fsck: {} issue(s) OK.", report.issue_count);
         Ok(0)
