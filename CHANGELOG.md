@@ -63,6 +63,12 @@ command changes behaviour, and the on-disk Format-Version stays at `1`.
 These metadata additions are optional and unenforced, remain additive, and keep
 the on-disk Format-Version at `1`.
 
+- `gli --version` (and the `--help` header) now include the git commit that
+  built the binary, for example `gli 0.1.0 (e8f2602ae4 2026-08-28)`. The stamp
+  uses the commit SHA and commit date (not a wall-clock build time), so builds
+  stay reproducible, and it falls back to the plain version when `.git` is
+  absent.
+
 ### Fixed
 
 - SIGPIPE is reset to its default on Unix, so `gli ls | head` and

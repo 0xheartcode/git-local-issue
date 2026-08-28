@@ -12,7 +12,9 @@ use clap::{CommandFactory, Parser, Subcommand};
 #[derive(Parser)]
 #[command(
     name = "gli",
-    version,
+    // Stamped with the git commit by build.rs (deterministic; falls back to the
+    // plain crate version when .git is absent).
+    version = env!("GLI_VERSION"),
     about = "git-local-issue: a distributed, offline-first issue tracker stored natively in Git",
     long_about = "git-local-issue (gli) stores issues natively in Git under refs/issues/*: no \
 external database, no server. Issues are distributed and offline-first, and sync by ordinary \

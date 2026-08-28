@@ -134,6 +134,11 @@ semantics, so `Format-Version` stays at 1.
   exactly why it ships after the format has been used single-user.
 - [ ] **D21. Property tests for convergence** (M). `proptest`: random op
   sequences must fold identically regardless of order and partition.
+- [ ] **C15b. Superseded-write surfacing ("drafts")** (M). LWW never deletes the
+  losing write (it stays in the op log), so after a merge gli can surface it:
+  "your title change X was superseded by Y from Alice; re-apply?". Re-applying
+  mints a higher-Lamport op that then wins. Turns LWW's silent loss into a
+  visible, recoverable prompt. Only reachable once merge exists.
 
 ---
 
