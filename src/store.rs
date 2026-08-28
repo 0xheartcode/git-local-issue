@@ -6,10 +6,55 @@
 //! chain tip, and moves the ref with a compare-and-swap.
 
 use crate::cache::read_ops;
-use crate::error::Result;
+use crate::error::{GliError, Result};
 use crate::git::{Author, GitBackend};
 use crate::id;
 use crate::model::{Op, OpKind, next_lamport};
+
+/// Soft cap on any single free-form field (title, description, comment). The
+/// format allows small inline content but attachments are not wired yet, so we
+/// refuse oversized payloads rather than bloat the op chain. ~1 MB.
+pub const MAX_FIELD_BYTES: usize = 1024 * 1024;
+
+/// How many times `append` re-reads and retries when the ref moves under it
+/// (optimistic concurrency: another process committed to the same issue first).
+const MAX_APPEND_ATTEMPTS: u32 = 5;
+
+/// Reject an oversized free-form field.
+fn check_size(field: &str, value: &str) -> Result<()> {
+    if value.len() > MAX_FIELD_BYTES {
+        return Err(GliError::FieldTooLarge {
+            field: field.to_string(),
+            size: value.len(),
+            limit: MAX_FIELD_BYTES,
+        });
+    }
+    Ok(())
+}
+
+/// Validate the free-form and label content of an op before it is written.
+fn validate_op(kind: &OpKind) -> Result<()> {
+    match kind {
+        OpKind::Create {
+            title,
+            description,
+            labels,
+            ..
+        } => {
+            check_size("title", title)?;
+            check_size("description", description)?;
+            for label in labels {
+                crate::model::validate_label(label)?;
+            }
+        }
+        OpKind::Comment { text } => check_size("comment", text)?,
+        OpKind::SetTitle { title } => check_size("title", title)?,
+        OpKind::SetDescription { description } => check_size("description", description)?,
+        OpKind::AddLabel { label } => crate::model::validate_label(label)?,
+        _ => {}
+    }
+    Ok(())
+}
 
 /// A handle over a [`GitBackend`] that performs issue writes.
 pub struct Store<'a> {
@@ -60,22 +105,16 @@ impl<'a> Store<'a> {
         assignee: Option<String>,
         priority: Option<String>,
     ) -> Result<String> {
-        for label in &labels {
-            crate::model::validate_label(label)?;
-        }
+        let kind = OpKind::Create {
+            title: title.to_string(),
+            description: description.to_string(),
+            labels,
+            assignee,
+            priority,
+        };
+        validate_op(&kind)?;
         let uuid = id::new_uuid();
-        let op = Op::new(
-            id::new_uuid(),
-            1,
-            self.actor_slug(),
-            OpKind::Create {
-                title: title.to_string(),
-                description: description.to_string(),
-                labels,
-                assignee,
-                priority,
-            },
-        );
+        let op = Op::new(id::new_uuid(), 1, self.actor_slug(), kind);
         let commit = self
             .backend
             .commit_op(None, &op.to_commit_message(), &self.author())?;
@@ -84,20 +123,45 @@ impl<'a> Store<'a> {
     }
 
     /// Append an operation to an existing issue's chain.
+    ///
+    /// This is optimistic: it reads the current tip, commits onto it, and moves
+    /// the ref with a compare-and-swap. If a concurrent process moved the ref
+    /// first, the swap fails and we re-read and retry (recomputing the Lamport
+    /// clock), up to [`MAX_APPEND_ATTEMPTS`], then report a clean `Conflict`
+    /// instead of a raw git error.
     pub fn append(&self, uuid: &str, kind: OpKind) -> Result<String> {
-        if let OpKind::AddLabel { label } = &kind {
-            crate::model::validate_label(label)?;
+        validate_op(&kind)?;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let existing = self.load_ops(uuid)?;
+            let tip = existing.iter().rev().find_map(|op| op.commit.clone());
+            let lamport = next_lamport(&existing);
+            let op = Op::new(id::new_uuid(), lamport, self.actor_slug(), kind.clone());
+            let commit =
+                self.backend
+                    .commit_op(tip.as_deref(), &op.to_commit_message(), &self.author())?;
+            match self
+                .backend
+                .update_ref(&refname(uuid), &commit, tip.as_deref())
+            {
+                Ok(()) => return Ok(commit),
+                Err(e) => {
+                    if attempt >= MAX_APPEND_ATTEMPTS {
+                        // Surface the conflict, but keep the underlying git
+                        // error visible for genuinely non-CAS failures.
+                        return Err(match e {
+                            GliError::Git(_) => GliError::Conflict {
+                                uuid: uuid.to_string(),
+                                attempts: attempt,
+                            },
+                            other => other,
+                        });
+                    }
+                    // Ref moved under us: loop, re-read, and try again.
+                }
+            }
         }
-        let existing = self.load_ops(uuid)?;
-        let tip = existing.iter().rev().find_map(|op| op.commit.clone());
-        let lamport = next_lamport(&existing);
-        let op = Op::new(id::new_uuid(), lamport, self.actor_slug(), kind);
-        let commit =
-            self.backend
-                .commit_op(tip.as_deref(), &op.to_commit_message(), &self.author())?;
-        self.backend
-            .update_ref(&refname(uuid), &commit, tip.as_deref())?;
-        Ok(commit)
     }
 
     /// Read the op log of a single issue by uuid.

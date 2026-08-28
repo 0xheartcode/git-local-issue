@@ -199,6 +199,22 @@ fn body_text_round_trips_exactly() {
 }
 
 #[test]
+fn oversized_fields_are_rejected() {
+    let repo = new_repo("Alice", "alice@example.com");
+    let store = Store::new(&repo.backend);
+    let huge = "x".repeat(gli::store::MAX_FIELD_BYTES + 1);
+
+    // On create (description).
+    assert!(store.create("t", &huge, vec![], None, None).is_err());
+    // On a comment append.
+    let uuid = store.create("t", "", vec![], None, None).unwrap();
+    assert!(store.append(&uuid, OpKind::Comment { text: huge }).is_err());
+    // A field exactly at the limit is accepted.
+    let at_limit = "y".repeat(gli::store::MAX_FIELD_BYTES);
+    assert!(store.create("t", &at_limit, vec![], None, None).is_ok());
+}
+
+#[test]
 fn labels_with_commas_are_rejected() {
     let repo = new_repo("Alice", "alice@example.com");
     let store = Store::new(&repo.backend);

@@ -169,3 +169,24 @@ run; a persistent on-disk cache is a later drop-in behind the same fold.
 - The format version bumps only for a change that would make an older reader
   compute wrong state from data it appears to understand. Such a change will be
   documented here with its migration notes.
+
+## 10. Reserved for future versions (design space, not yet built)
+
+These are anticipated so the format can grow additively (no version bump) when
+they land. They are documented now so a 0.1.0 reader already tolerates them.
+
+- **Attachments.** New operation types carrying inline blobs (size-guarded) or
+  URL references, using a non-empty commit tree. Readers already must not assume
+  the empty tree (section 2).
+- **Issue relations.** `relate` / `unrelate` operations linking two issue uuids
+  with a relation kind (`blocks`, `relates-to`, `duplicate-of`). These will fold
+  as an OR-Set of typed edges. Unknown-to-an-old-reader, so safely skipped.
+- **Commit signing.** GPG/SSH signatures on operation commits for verifiable
+  authorship. This rides on git's own commit signing and adds no trailer, so it
+  is invisible to the fold.
+- **Reactions and stable (non-drifting) display numbers.** Optional, additive.
+
+Because all of the above are either new operation types (skippable) or new
+optional trailers (ignorable) or git-native features, none of them require a
+`Format-Version` bump. Format version stays at 1 until a genuinely breaking
+change is unavoidable.

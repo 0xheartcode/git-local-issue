@@ -29,6 +29,18 @@ pub enum GliError {
     #[error("invalid label {label:?}: {reason}")]
     InvalidLabel { label: String, reason: String },
 
+    #[error("{field} is too large ({size} bytes, limit {limit}); attachments are not wired yet")]
+    FieldTooLarge {
+        field: String,
+        size: usize,
+        limit: usize,
+    },
+
+    #[error(
+        "issue {uuid} changed underneath this write after {attempts} attempts (another process may be editing it); nothing was applied, retry"
+    )]
+    Conflict { uuid: String, attempts: u32 },
+
     #[error("git command failed: {0}")]
     Git(String),
 }

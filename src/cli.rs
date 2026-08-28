@@ -109,6 +109,9 @@ description, and every comment in order."
     Show {
         #[arg(long_help = ID_HELP)]
         id: String,
+        /// Print the raw operation log instead of the folded issue.
+        #[arg(long)]
+        ops: bool,
     },
 
     /// Add a comment to an issue.
@@ -173,11 +176,37 @@ gli state alice-1 closed --fixed-by 1a2b3c4\n  gli state alice-1 open"
         fixed_by: Option<String>,
     },
 
+    /// Close an issue (shorthand for `state <id> closed`).
+    #[command(
+        long_about = "Close an issue. Shorthand for `gli state <id> closed`, with the same \
+optional --reason and --fixed-by."
+    )]
+    Close {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        /// Free-text reason for closing.
+        #[arg(long)]
+        reason: Option<String>,
+        /// Commit sha that fixed the issue.
+        #[arg(long = "fixed-by")]
+        fixed_by: Option<String>,
+    },
+
+    /// Reopen an issue (shorthand for `state <id> open`).
+    #[command(long_about = "Reopen an issue. Shorthand for `gli state <id> open`.")]
+    Reopen {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        /// Free-text reason for reopening.
+        #[arg(long)]
+        reason: Option<String>,
+    },
+
     /// Repository health: renumber notices, integrity, and local-only issues.
     #[command(
         long_about = "Report repository health: total open/closed counts, whether any \
-display numbers may drift, and which issues have local commits not yet on a remote (git-bug \
-#1566). Read-only."
+display numbers may drift, whether any actor slug is shared by two identities, and which issues \
+have local commits not yet on a remote (git-bug #1566). Read-only."
     )]
     Status,
 
@@ -222,7 +251,7 @@ fn dispatch(command: Command) -> Result<i32> {
             label,
             format,
         } => cmd_ls(state, label, format),
-        Command::Show { id } => cmd_show(id),
+        Command::Show { id, ops } => cmd_show(id, ops),
         Command::Comment { id, text } => cmd_comment(id, text),
         Command::Edit {
             id,
@@ -238,6 +267,12 @@ fn dispatch(command: Command) -> Result<i32> {
             reason,
             fixed_by,
         } => cmd_state(id, state, reason, fixed_by),
+        Command::Close {
+            id,
+            reason,
+            fixed_by,
+        } => cmd_state(id, "closed".to_string(), reason, fixed_by),
+        Command::Reopen { id, reason } => cmd_state(id, "open".to_string(), reason, None),
         Command::Status => cmd_status(),
         Command::Fsck => cmd_fsck(),
     }
@@ -351,14 +386,41 @@ fn cmd_ls(state: Option<String>, label: Option<String>, format: String) -> Resul
     Ok(0)
 }
 
-fn cmd_show(id: String) -> Result<i32> {
+fn cmd_show(id: String, ops: bool) -> Result<i32> {
     let backend = backend()?;
     let cache = Cache::build(&backend)?;
     let uuid = cache.resolve(&id)?;
+    let d = cache.display_of(&uuid);
+
+    if ops {
+        // Raw operation log: the ground truth the folded view is computed from.
+        let log = cache
+            .ops
+            .get(&uuid)
+            .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
+        println!(
+            "{}  ({})  operation log ({} ops):",
+            d.nonce,
+            uuid,
+            log.len()
+        );
+        for op in log {
+            let commit = op.commit.as_deref().unwrap_or("-");
+            let short = &commit[..7.min(commit.len())];
+            println!(
+                "  [lamport {:>4}] {:<15} op-id {}  ({})",
+                op.lamport,
+                op.kind.slug(),
+                op.id,
+                short
+            );
+        }
+        return Ok(0);
+    }
+
     let issue = cache
         .issue(&uuid)
         .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
-    let d = cache.display_of(&uuid);
 
     println!("{}  ({})", d.nonce, uuid);
     println!("Title:    {}", issue.title());
@@ -422,43 +484,74 @@ fn cmd_edit(
     let cache = Cache::build(&backend)?;
     let uuid = cache.resolve(&id)?;
     let store = Store::new(&backend);
+    let nonce = cache.display_of(&uuid).nonce;
 
-    let mut changes = 0;
+    // Each field is its own durable operation (operation-sourcing). We apply
+    // them in a fixed order and report each as it lands, so if one fails the
+    // user can see exactly which changes were already applied.
+    let mut applied = 0;
     if let Some(title) = title {
-        store.append(&uuid, OpKind::SetTitle { title })?;
-        changes += 1;
+        store.append(
+            &uuid,
+            OpKind::SetTitle {
+                title: title.clone(),
+            },
+        )?;
+        println!("  set title: {}", first_line(&title));
+        applied += 1;
     }
     if let Some(description) = desc {
         store.append(&uuid, OpKind::SetDescription { description })?;
-        changes += 1;
+        println!("  set description");
+        applied += 1;
     }
     for label in add_label {
-        store.append(&uuid, OpKind::AddLabel { label })?;
-        changes += 1;
+        store.append(
+            &uuid,
+            OpKind::AddLabel {
+                label: label.clone(),
+            },
+        )?;
+        println!("  add label: {label}");
+        applied += 1;
     }
     for label in remove_label {
-        store.append(&uuid, OpKind::RemoveLabel { label })?;
-        changes += 1;
+        store.append(
+            &uuid,
+            OpKind::RemoveLabel {
+                label: label.clone(),
+            },
+        )?;
+        println!("  remove label: {label}");
+        applied += 1;
     }
     if let Some(a) = assignee {
+        let cleared = a.is_empty();
         store.append(
             &uuid,
             OpKind::SetAssignee {
-                assignee: Some(a).filter(|s| !s.is_empty()),
+                assignee: Some(a.clone()).filter(|s| !s.is_empty()),
             },
         )?;
-        changes += 1;
+        if cleared {
+            println!("  clear assignee");
+        } else {
+            println!("  set assignee: {a}");
+        }
+        applied += 1;
     }
 
-    if changes == 0 {
+    if applied == 0 {
         println!("Nothing to change. Pass --title, --desc, --add-label, --remove-label, or -a.");
     } else {
-        println!(
-            "Applied {changes} change(s) to {}",
-            cache.display_of(&uuid).nonce
-        );
+        println!("Applied {applied} change(s) to {nonce}");
     }
     Ok(0)
+}
+
+/// First line of a multi-line string, for compact echoing.
+fn first_line(s: &str) -> &str {
+    s.lines().next().unwrap_or("").trim()
 }
 
 fn cmd_state(
@@ -518,6 +611,34 @@ fn cmd_status() -> Result<i32> {
         );
         for (actor, n) in multi {
             println!("  {actor}: {n} issues (numbered by UUIDv7 order)");
+        }
+    }
+
+    // Actor-slug collisions: two distinct git identities can slug to the same
+    // actor (e.g. `al@x` and `al@y` both -> `al`), silently sharing a nonce
+    // namespace. Surface it from the create-op author identities we read back.
+    let mut identities: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        Default::default();
+    for ops in cache.ops.values() {
+        if let Some(create) = ops
+            .iter()
+            .find(|o| matches!(o.kind, crate::model::OpKind::Create { .. }))
+            && let Some(author) = &create.author
+        {
+            identities
+                .entry(create.actor.clone())
+                .or_default()
+                .insert(author.clone());
+        }
+    }
+    let collisions: Vec<_> = identities.iter().filter(|(_, ids)| ids.len() > 1).collect();
+    if !collisions.is_empty() {
+        println!("Actor slugs shared by multiple identities (nonce namespaces overlap):");
+        for (actor, ids) in collisions {
+            println!(
+                "  {actor}: {}",
+                ids.iter().cloned().collect::<Vec<_>>().join(", ")
+            );
         }
     }
 
