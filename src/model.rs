@@ -88,6 +88,11 @@ pub enum OpKind {
     RemoveLabel {
         label: String,
     },
+    /// Archive (hide) or restore an issue. Soft and reversible: nothing is
+    /// destroyed, the op log stays intact, and it folds as an LWW-Register.
+    SetArchived {
+        archived: bool,
+    },
 }
 
 impl OpKind {
@@ -103,6 +108,7 @@ impl OpKind {
             OpKind::SetPriority { .. } => "set-priority",
             OpKind::AddLabel { .. } => "add-label",
             OpKind::RemoveLabel { .. } => "remove-label",
+            OpKind::SetArchived { .. } => "set-archived",
         }
     }
 }
@@ -157,6 +163,9 @@ impl Op {
             },
             OpKind::AddLabel { label } => format!("Add label: {label}"),
             OpKind::RemoveLabel { label } => format!("Remove label: {label}"),
+            OpKind::SetArchived { archived } => {
+                if *archived { "Archive" } else { "Restore" }.to_string()
+            }
         }
     }
 
@@ -215,6 +224,9 @@ impl Op {
                 t.push("Priority", priority.as_deref().unwrap_or(""));
             }
             OpKind::AddLabel { label } | OpKind::RemoveLabel { label } => t.push("Label", label),
+            OpKind::SetArchived { archived } => {
+                t.push("Archived", if *archived { "true" } else { "false" })
+            }
             OpKind::Comment { .. } | OpKind::SetDescription { .. } => {}
         }
         t.push("Op", self.kind.slug());
@@ -302,6 +314,11 @@ impl Op {
                 label: get("Label")
                     .ok_or_else(|| malformed("remove-label has no Label trailer"))?
                     .to_string(),
+            },
+            "set-archived" => OpKind::SetArchived {
+                // Default to archived=true when the flag is missing or unparsable:
+                // the op only exists to change the bit, and true is its usual intent.
+                archived: get("Archived").map(|v| v.trim() == "true").unwrap_or(true),
             },
             other => return Err(malformed(&format!("unknown Op type '{other}'"))),
         };
@@ -447,6 +464,8 @@ pub struct Issue {
     pub priority: Lww<Option<String>>,
     pub labels: OrSet,
     pub comments: Vec<Comment>,
+    /// Whether the issue is archived (hidden from default listings).
+    pub archived: Lww<bool>,
     /// Actor that created the issue (namespaces its display number).
     pub creator: String,
     pub created_at: Option<i64>,
@@ -481,6 +500,7 @@ impl Issue {
             priority: Lww::default(),
             labels: OrSet::default(),
             comments: Vec::new(),
+            archived: Lww::default(),
             creator: create.actor.clone(),
             created_at: create.timestamp,
             op_count: ordered.len(),
@@ -547,6 +567,9 @@ impl Issue {
                 }
                 OpKind::AddLabel { label } => issue.labels.add(label, &op.id),
                 OpKind::RemoveLabel { label } => issue.labels.remove(label),
+                OpKind::SetArchived { archived } => {
+                    issue.archived.apply(*archived, op.lamport, &op.id)
+                }
             }
         }
 
@@ -582,6 +605,10 @@ impl Issue {
 
     pub fn labels(&self) -> Vec<String> {
         self.labels.values()
+    }
+
+    pub fn archived(&self) -> bool {
+        *self.archived.get()
     }
 }
 
@@ -959,11 +986,34 @@ mod tests {
             OpKind::RemoveLabel {
                 label: "wontfix".into(),
             },
+            OpKind::SetArchived { archived: true },
+            OpKind::SetArchived { archived: false },
         ];
         for (i, kind) in kinds.into_iter().enumerate() {
             let original = op(&format!("op{i}"), (i + 1) as u64, "alice", kind);
             assert_eq!(roundtrip(&original), original, "op #{i} did not round-trip");
         }
+    }
+
+    #[test]
+    fn archived_is_lww() {
+        // Default not archived; archive then restore folds to not-archived; a
+        // higher-lamport archive wins regardless of fold order.
+        let base = vec![create("c", 1, "t")];
+        assert!(!Issue::fold("u", &base).unwrap().archived());
+
+        let archived = vec![
+            create("c", 1, "t"),
+            op("a1", 2, "alice", OpKind::SetArchived { archived: true }),
+        ];
+        assert!(Issue::fold("u", &archived).unwrap().archived());
+
+        let restored = vec![
+            create("c", 1, "t"),
+            op("a2", 3, "alice", OpKind::SetArchived { archived: false }),
+            op("a1", 2, "alice", OpKind::SetArchived { archived: true }),
+        ];
+        assert!(!Issue::fold("u", &restored).unwrap().archived());
     }
 
     #[test]

@@ -47,6 +47,153 @@ fn new_repo() -> TempDir {
 }
 
 #[test]
+fn archive_hides_and_restore_shows() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "One"]);
+    gli(dir, &["create", "Two"]);
+
+    let (out, ok) = gli(dir, &["archive", "alice-1"]);
+    assert!(ok);
+    assert!(out.contains("Archived"), "got: {out}");
+
+    // Default ls hides it.
+    let (ls, _) = gli(dir, &["ls"]);
+    assert!(!ls.contains("One"), "archived issue should be hidden: {ls}");
+    assert!(ls.contains("Two"), "got: {ls}");
+    // --archived shows only it; --all shows both.
+    let (only, _) = gli(dir, &["ls", "--archived"]);
+    assert!(only.contains("One") && !only.contains("Two"), "got: {only}");
+    let (all, _) = gli(dir, &["ls", "--all"]);
+    assert!(all.contains("One") && all.contains("Two"), "got: {all}");
+
+    // Restore brings it back.
+    let (out, ok) = gli(dir, &["restore", "alice-1"]);
+    assert!(ok && out.contains("Restored"), "got: {out}");
+    let (ls, _) = gli(dir, &["ls"]);
+    assert!(ls.contains("One"), "restored issue should show: {ls}");
+}
+
+#[test]
+fn rm_alias_archives_and_purge_deletes() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "Soft"]);
+    gli(dir, &["create", "Hard"]);
+
+    // `rm` is an alias for archive (soft, reversible).
+    let (_, ok) = gli(dir, &["rm", "alice-1"]);
+    assert!(ok);
+    let (all, _) = gli(dir, &["ls", "--all"]);
+    assert!(all.contains("Soft"), "rm should archive, not delete: {all}");
+
+    // --purge hard-deletes the ref.
+    let (out, ok) = gli(dir, &["archive", "alice-2", "--purge"]);
+    assert!(ok && out.contains("Permanently deleted"), "got: {out}");
+    let (all, _) = gli(dir, &["ls", "--all"]);
+    assert!(!all.contains("Hard"), "purged issue should be gone: {all}");
+}
+
+#[test]
+fn filters_and_search_narrow_the_list() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(
+        dir,
+        &[
+            "create",
+            "Login bug",
+            "-l",
+            "bug",
+            "-l",
+            "frontend",
+            "-p",
+            "high",
+            "-a",
+            "alice",
+        ],
+    );
+    gli(dir, &["create", "Docs typo", "-l", "docs"]);
+
+    // Label AND: both labels required.
+    let (out, _) = gli(dir, &["ls", "-l", "bug", "-l", "frontend"]);
+    assert!(
+        out.contains("Login bug") && !out.contains("Docs typo"),
+        "got: {out}"
+    );
+    // Assignee + priority.
+    let (out, _) = gli(dir, &["ls", "--assignee", "alice", "--priority", "high"]);
+    assert!(
+        out.contains("Login bug") && !out.contains("Docs typo"),
+        "got: {out}"
+    );
+    // Text search over title.
+    let (out, _) = gli(dir, &["ls", "--search", "typo"]);
+    assert!(
+        out.contains("Docs typo") && !out.contains("Login bug"),
+        "got: {out}"
+    );
+}
+
+#[test]
+fn json_output_is_valid_and_complete() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "JSON me", "-l", "x", "-p", "low"]);
+    gli(dir, &["comment", "alice-1", "a note"]);
+
+    let (out, ok) = gli(dir, &["ls", "--format", "json"]);
+    assert!(ok);
+    let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid JSON array");
+    let arr = parsed.as_array().expect("array");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["title"], "JSON me");
+    assert_eq!(arr[0]["priority"], "low");
+    assert_eq!(arr[0]["comment_count"], 1);
+
+    let (out, ok) = gli(dir, &["show", "alice-1", "--json"]);
+    assert!(ok);
+    let obj: serde_json::Value = serde_json::from_str(&out).expect("valid JSON object");
+    assert_eq!(obj["comments"][0]["text"], "a note");
+}
+
+#[test]
+fn config_defaults_apply_on_create() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["config", "set", "priority", "medium"]);
+    gli(dir, &["config", "set", "labels", "triage,needs-info"]);
+
+    // create with no -p / -l picks up the defaults.
+    gli(dir, &["create", "Uses defaults"]);
+    let (out, _) = gli(dir, &["show", "alice-1", "--json"]);
+    let obj: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(obj["priority"], "medium");
+    let labels = obj["labels"].as_array().unwrap();
+    assert!(labels.iter().any(|l| l == "triage"));
+    assert!(labels.iter().any(|l| l == "needs-info"));
+
+    // An explicit flag overrides the default.
+    gli(dir, &["create", "Explicit", "-p", "high"]);
+    let (out, _) = gli(dir, &["show", "alice-2", "--json"]);
+    let obj: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(obj["priority"], "high");
+}
+
+#[test]
+fn completions_and_man_render() {
+    let repo = new_repo();
+    let dir = repo.path();
+    let (bash, ok) = gli(dir, &["completions", "bash"]);
+    assert!(
+        ok && bash.contains("_gli"),
+        "bash completions should mention _gli"
+    );
+    let (man, ok) = gli(dir, &["man"]);
+    assert!(ok && man.contains("gli"), "man page should render");
+}
+
+#[test]
 fn close_and_reopen_aliases_drive_state() {
     let repo = new_repo();
     let dir = repo.path();

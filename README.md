@@ -32,17 +32,32 @@ on-disk format is frozen until v0.1 ships.
 ```
 gli init                       # set up refs/issues in the current repo
 gli create "title" [-l label] [-a assignee] [-p priority] [-d desc]
-gli ls [--state open|closed] [-l label] [--format short|full]   # alias: gli list
-gli show <id>                  # id = actor-nonce OR uuidv7 prefix
-gli comment <id> "text"
+gli ls [--state ...] [-l label ...] [--assignee ...] [--priority ...] [--creator ...] [-s search] [--sort newest|oldest|title] [--archived|--all] [--format short|full|json]   # alias: gli list
+gli show <id> [--json]         # id = actor-nonce OR uuidv7 prefix
+gli comment <id> ["text"]      # no text opens $EDITOR ($VISUAL, then vi)
 gli edit <id> [--title ...] [--desc ...] [--add-label ...] [--remove-label ...] [-a ...]
 gli state <id> open|closed [--reason ...] [--fixed-by <sha>]
+gli archive <id> [--purge]     # soft-hide an issue (alias: gli rm); --purge deletes the ref
+gli restore <id>               # un-archive a soft-hidden issue
+gli config get|set|list        # per-repo defaults under gli.default.* (priority, assignee, labels, format)
 gli status                     # renumber notices, integrity, and unpushed/local-only issues
 gli fsck                       # validate issue data integrity
+gli completions <bash|zsh|fish|powershell|elvish>   # print a shell completion script
+gli man                        # print the man page (roff)
 gli --version / --help         # --help also prints the version
 ```
 
 `edit` supports editing the description/body (`--desc`), not just the title.
+
+`ls` filters all combine with AND: repeatable `-l/--label` (AND), `--assignee`,
+`--priority`, `--creator` (alias `--author`), `-s/--search` (free text over
+title, description, labels, and comments), `--state`, and `--sort`. Archived
+issues are hidden by default: `--archived` shows only archived issues and
+`--all` shows both. `--format json` (on `ls`) and `--json` (on `show`) emit a
+stable machine-readable schema.
+
+`create` and `ls` fall back to the `gli config` defaults when the matching flag
+is absent; an explicit flag always wins.
 
 `<id>` resolution accepts an actor-nonce (for example `alice-4`) or a UUIDv7
 prefix (for example `018f2a1c`). Prefixes expand unambiguously, and `gli`
@@ -67,6 +82,14 @@ wall-clock time), so the model is **CRDT-ready** from the start:
 - Title, state, and assignee are an **LWW-Register** (last write wins, ordered
   by Lamport clock).
 - Labels are an **OR-Set** (observed-remove set).
+- Archived is an **LWW-Register**: `gli archive` records a `set-archived`
+  operation, so hiding an issue is a soft, reversible tombstone (undone by
+  `gli restore`) that merges cleanly. Only `gli archive --purge`, which deletes
+  the underlying ref, is irreversible and not sync-safe.
+
+Per-repository defaults live in git config under `gli.default.*` (priority,
+assignee, labels, format) and fill in for `create` and `ls` when the matching
+flag is omitted, so an explicit flag always wins.
 
 The CRDT merge algorithm itself lands with sync in a later version, but the
 on-disk model is designed to be CRDT-correct now.

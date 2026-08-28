@@ -17,5 +17,6 @@ pub mod fsck;
 pub mod git;
 pub mod id;
 pub mod model;
+pub mod output;
 pub mod store;
 pub mod trailer;

@@ -96,6 +96,7 @@ message is a single paragraph, it is treated as subject/body with no trailers.
 | `State` | `set-state` | `open` or `closed`. |
 | `Reason` | `set-state` | Optional free-text reason. |
 | `Fixed-By` | `set-state` | Optional commit sha that fixed the issue. |
+| `Archived` | `set-archived` | `true` or `false`. |
 
 Custom/experimental trailers SHOULD be prefixed `X-` (for example
 `X-Reactions`). Any unknown trailer MUST be ignored, never rejected.
@@ -113,6 +114,7 @@ Custom/experimental trailers SHOULD be prefixed `X-` (for example
 | `set-priority` | priority (trailer, empty = clear) | LWW-Register write |
 | `add-label` | label (trailer) | OR-Set add; the add-tag is the op's `Op-Id` |
 | `remove-label` | label (trailer) | OR-Set remove |
+| `set-archived` | archived flag (trailer) | LWW-Register write (hide/restore) |
 
 ## 6. Folding to current state (CRDT rules)
 
@@ -121,9 +123,10 @@ State is computed by applying operations in causal order, defined as ascending
 tie-break by `Op-Id` keeps the result deterministic across clones once
 concurrent histories merge.
 
-- **Title, description, state, assignee, priority: LWW-Register.** The write
-  with the greatest `(Lamport, Op-Id)` wins. The `Op-Id` tie-break means two
-  writers who happen to share a Lamport value still converge to the same value.
+- **Title, description, state, assignee, priority, archived: LWW-Register.** The
+  write with the greatest `(Lamport, Op-Id)` wins. The `Op-Id` tie-break means
+  two writers who happen to share a Lamport value still converge to the same
+  value. `archived` defaults to `false` and is a soft, reversible flag.
 - **Labels: OR-Set (observed-remove).** Each `add-label` contributes a unique
   add-tag (its `Op-Id`) for that element. An element is present while it has at
   least one live add-tag. A `remove-label` removes the add-tags it has observed.

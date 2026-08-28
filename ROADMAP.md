@@ -60,14 +60,26 @@ release a real release, or is expensive to change after the format goes live.
 
 Purely additive command surface. Breaks nobody.
 
-- [ ] **B6. `rm` / archive** (S). Tombstone op to delete or hide a mistaken issue.
-- [ ] **B8. Richer search and filters** (M). Text search; multi-label AND/OR;
-  filter by assignee/priority/author; sort options.
-- [ ] **B9. `--format json`** (M). Machine-readable output for scripting.
-- [ ] **B11. `$EDITOR` integration** (S). Open the editor when create/comment is
-  called with no body, like `git commit`.
-- [ ] **B12. `gli config`** (S). Per-repo defaults (priority, labels, format).
-- [ ] **B13. Shell completions + man page** (S). Generated via clap.
+Note: most of these landed early, in the same release line as 0.1.0, since
+nothing has been published yet.
+
+- [x] **B6. `rm` / archive** (S). Tombstone op to delete or hide a mistaken issue.
+  (done) `archive`/`restore` are a soft, reversible `set-archived` op (folds LWW);
+  `rm` is an alias; `--purge` deletes the ref irreversibly.
+- [x] **B8. Richer search and filters** (M). Text search; multi-label AND/OR;
+  filter by assignee/priority/author; sort options. (done) `ls` gained repeatable
+  `-l` (AND), `--assignee`, `--priority`, `--creator`, `-s/--search`, `--sort`,
+  and `--archived`/`--all`.
+- [x] **B9. `--format json`** (M). Machine-readable output for scripting. (done)
+  `--format json` on `ls` and `--json` on `show`, over a stable schema.
+- [x] **B11. `$EDITOR` integration** (S). Open the editor when create/comment is
+  called with no body, like `git commit`. (done) `comment` with no text opens
+  `$EDITOR` (then `$VISUAL`, then `vi`).
+- [x] **B12. `gli config`** (S). Per-repo defaults (priority, labels, format).
+  (done) `config get|set|list` under `gli.default.*`; `create` and `ls` fall back
+  to them unless a flag overrides.
+- [x] **B13. Shell completions + man page** (S). Generated via clap. (done)
+  `gli completions <shell>` and `gli man`.
 - [ ] **B4-repair. `fsck --fix`** (M). Repair the auto-resolvable problems fsck
   currently only reports.
 

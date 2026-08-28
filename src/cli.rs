@@ -7,7 +7,7 @@ use crate::git::{CliBackend, GitBackend};
 use crate::model::{OpKind, State, StateVal};
 use crate::store::Store;
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -86,19 +86,45 @@ gli create \"Slow query\" -l perf -l db -p high -a bob -d \"p95 is 3s on /search
     /// List issues.
     #[command(
         visible_alias = "list",
-        long_about = "List issues, newest first. Without filters \
-it shows every issue. `--format full` adds assignee, priority, labels and comment counts."
+        long_about = "List issues, newest first. All filters combine with AND. Archived issues \
+are hidden unless --all or --archived is given. `--format full` adds assignee, priority, labels \
+and comment counts; `--format json` emits a machine-readable array.",
+        after_help = "EXAMPLES:\n  gli ls --state open -l bug -l frontend\n  \
+gli ls --assignee alice --priority high\n  \
+gli ls --search \"login\" --format full\n  \
+gli ls --all --format json"
     )]
     Ls {
         /// Only show issues in this state: open or closed.
         #[arg(long, value_name = "open|closed")]
         state: Option<String>,
-        /// Only show issues carrying this label.
+        /// Only show issues carrying this label; repeat for AND.
         #[arg(short = 'l', long = "label")]
-        label: Option<String>,
-        /// Output detail: short (one line each) or full.
-        #[arg(long, default_value = "short", value_name = "short|full")]
-        format: String,
+        label: Vec<String>,
+        /// Only show issues assigned to this person.
+        #[arg(long)]
+        assignee: Option<String>,
+        /// Only show issues with this priority.
+        #[arg(long)]
+        priority: Option<String>,
+        /// Only show issues created by this actor.
+        #[arg(long, visible_alias = "author")]
+        creator: Option<String>,
+        /// Free-text search over title, description, and comments.
+        #[arg(short = 's', long)]
+        search: Option<String>,
+        /// Show only archived issues.
+        #[arg(long)]
+        archived: bool,
+        /// Include archived issues alongside active ones.
+        #[arg(long)]
+        all: bool,
+        /// Sort order: newest (default), oldest, or title.
+        #[arg(long, default_value = "newest", value_name = "newest|oldest|title")]
+        sort: String,
+        /// Output detail: short (one line each), full, or json.
+        #[arg(long, value_name = "short|full|json")]
+        format: Option<String>,
     },
 
     /// Show one issue with its comments.
@@ -112,6 +138,9 @@ description, and every comment in order."
         /// Print the raw operation log instead of the folded issue.
         #[arg(long)]
         ops: bool,
+        /// Emit the issue as JSON instead of human-readable text.
+        #[arg(long)]
+        json: bool,
     },
 
     /// Add a comment to an issue.
@@ -122,8 +151,8 @@ a stable id so it never duplicates or reorders, even after a future sync."
     Comment {
         #[arg(long_help = ID_HELP)]
         id: String,
-        /// The comment text (quote it if it contains spaces).
-        text: String,
+        /// The comment text. If omitted, $EDITOR opens to compose it.
+        text: Option<String>,
     },
 
     /// Edit an issue's fields.
@@ -202,6 +231,28 @@ optional --reason and --fixed-by."
         reason: Option<String>,
     },
 
+    /// Archive an issue (hide it from listings; reversible).
+    #[command(
+        visible_alias = "rm",
+        long_about = "Archive an issue: hide it from default listings without destroying \
+anything. This is a reversible operation (see `restore`), and the whole op log is preserved. \
+To permanently delete the underlying ref instead, pass --purge (irreversible, not sync-safe)."
+    )]
+    Archive {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        /// Permanently delete the issue ref instead of archiving (irreversible).
+        #[arg(long)]
+        purge: bool,
+    },
+
+    /// Restore a previously archived issue.
+    #[command(long_about = "Restore an archived issue so it appears in listings again.")]
+    Restore {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+    },
+
     /// Repository health: renumber notices, integrity, and local-only issues.
     #[command(
         long_about = "Report repository health: total open/closed counts, whether any \
@@ -217,7 +268,61 @@ Create, ops parse, op-ids are unique, and the log folds cleanly. Exits non-zero 
 is found. Read-only."
     )]
     Fsck,
+
+    /// Get, set, or list per-repository defaults.
+    #[command(
+        long_about = "Manage per-repository defaults, stored in git config under `gli.default.*`. \
+Recognized keys: priority, assignee, labels (comma-separated), format. `create` and `ls` fall \
+back to these when the matching flag is not given.",
+        after_help = "EXAMPLES:\n  gli config set priority medium\n  \
+gli config set labels triage,needs-info\n  gli config get priority\n  gli config list"
+    )]
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+
+    /// Generate a shell completion script (print to stdout).
+    #[command(
+        long_about = "Print a shell completion script to stdout. Redirect it into the location \
+your shell loads completions from.",
+        after_help = "EXAMPLES:\n  gli completions bash > ~/.local/share/bash-completion/completions/gli\n  \
+gli completions zsh  > ~/.zfunc/_gli"
+    )]
+    Completions {
+        /// Target shell.
+        shell: clap_complete::Shell,
+    },
+
+    /// Print the man page (roff) to stdout.
+    #[command(
+        long_about = "Render the gli man page in roff format to stdout. Save it as `gli.1` on \
+your MANPATH, e.g. gli man > /usr/local/share/man/man1/gli.1"
+    )]
+    Man,
 }
+
+/// Actions for `gli config`.
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Print a default's value (nothing if unset).
+    Get {
+        /// One of: priority, assignee, labels, format.
+        key: String,
+    },
+    /// Set a default.
+    Set {
+        /// One of: priority, assignee, labels, format.
+        key: String,
+        /// The value to store.
+        value: String,
+    },
+    /// List all defaults currently set.
+    List,
+}
+
+/// The config keys `gli config` accepts (stored as `gli.default.<key>`).
+const CONFIG_KEYS: [&str; 4] = ["priority", "assignee", "labels", "format"];
 
 /// Parse args and run. Returns a process exit code.
 pub fn run() -> i32 {
@@ -249,9 +354,27 @@ fn dispatch(command: Command) -> Result<i32> {
         Command::Ls {
             state,
             label,
+            assignee,
+            priority,
+            creator,
+            search,
+            archived,
+            all,
+            sort,
             format,
-        } => cmd_ls(state, label, format),
-        Command::Show { id, ops } => cmd_show(id, ops),
+        } => cmd_ls(LsArgs {
+            state,
+            labels: label,
+            assignee,
+            priority,
+            creator,
+            search,
+            archived,
+            all,
+            sort,
+            format,
+        }),
+        Command::Show { id, ops, json } => cmd_show(id, ops, json),
         Command::Comment { id, text } => cmd_comment(id, text),
         Command::Edit {
             id,
@@ -273,8 +396,16 @@ fn dispatch(command: Command) -> Result<i32> {
             fixed_by,
         } => cmd_state(id, "closed".to_string(), reason, fixed_by),
         Command::Reopen { id, reason } => cmd_state(id, "open".to_string(), reason, None),
+        Command::Archive { id, purge } => cmd_archive(id, purge),
+        Command::Restore { id } => cmd_restore(id),
         Command::Status => cmd_status(),
         Command::Fsck => cmd_fsck(),
+        Command::Config { action } => cmd_config(action),
+        Command::Completions { shell } => {
+            cmd_completions(shell);
+            Ok(0)
+        }
+        Command::Man => cmd_man(),
     }
 }
 
@@ -302,13 +433,35 @@ fn cmd_create(
     desc: Option<String>,
 ) -> Result<i32> {
     let backend = backend()?;
+
+    // Fall back to per-repo defaults (gli.default.*) when a flag is absent.
+    let default = |key: &str| backend.config(&format!("gli.default.{key}"));
+    let labels = if labels.is_empty() {
+        default("labels")
+            .map(|s| {
+                s.split(',')
+                    .map(|p| p.trim().to_string())
+                    .filter(|p| !p.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        labels
+    };
+    let assignee = assignee
+        .filter(|s| !s.is_empty())
+        .or_else(|| default("assignee"));
+    let priority = priority
+        .filter(|s| !s.is_empty())
+        .or_else(|| default("priority"));
+
     let store = Store::new(&backend);
     let uuid = store.create(
         &title,
         desc.as_deref().unwrap_or(""),
         labels,
-        assignee.filter(|s| !s.is_empty()),
-        priority.filter(|s| !s.is_empty()),
+        assignee,
+        priority,
     )?;
     let cache = Cache::build(&backend)?;
     let display = cache.display_of(&uuid);
@@ -316,31 +469,88 @@ fn cmd_create(
     Ok(0)
 }
 
-fn cmd_ls(state: Option<String>, label: Option<String>, format: String) -> Result<i32> {
+/// Parsed arguments for `ls`, grouped to keep the handler signature small.
+struct LsArgs {
+    state: Option<String>,
+    labels: Vec<String>,
+    assignee: Option<String>,
+    priority: Option<String>,
+    creator: Option<String>,
+    search: Option<String>,
+    archived: bool,
+    all: bool,
+    sort: String,
+    format: Option<String>,
+}
+
+fn cmd_ls(args: LsArgs) -> Result<i32> {
     let backend = backend()?;
     let cache = Cache::build(&backend)?;
 
-    let state_filter = match state.as_deref() {
+    // Format precedence: explicit flag, then gli.default.format, then "short".
+    let format = args
+        .format
+        .clone()
+        .or_else(|| backend.config("gli.default.format"))
+        .unwrap_or_else(|| "short".to_string());
+
+    let state_filter = match args.state.as_deref() {
         Some(s) => Some(
             State::parse(s).ok_or_else(|| anyhow::anyhow!("invalid state '{s}' (open|closed)"))?,
         ),
         None => None,
     };
+    let search = args.search.as_deref().map(str::to_lowercase);
 
     let mut rows: Vec<&crate::model::Issue> = cache
         .issues
         .iter()
+        // Archived visibility: hidden by default, only-archived with --archived,
+        // both with --all.
+        .filter(|i| {
+            if args.all {
+                true
+            } else if args.archived {
+                i.archived()
+            } else {
+                !i.archived()
+            }
+        })
         .filter(|i| match &state_filter {
             Some(want) => &i.state().state == want,
             None => true,
         })
-        .filter(|i| match &label {
-            Some(l) => i.labels.contains(l),
+        // Every requested label must be present (AND).
+        .filter(|i| args.labels.iter().all(|l| i.labels.contains(l)))
+        .filter(|i| match &args.assignee {
+            Some(a) => i.assignee() == Some(a.as_str()),
+            None => true,
+        })
+        .filter(|i| match &args.priority {
+            Some(p) => i.priority() == Some(p.as_str()),
+            None => true,
+        })
+        .filter(|i| match &args.creator {
+            Some(c) => &i.creator == c,
+            None => true,
+        })
+        .filter(|i| match &search {
+            Some(term) => issue_matches_search(i, term),
             None => true,
         })
         .collect();
-    // Newest first for listing.
-    rows.sort_by(|a, b| b.uuid.cmp(&a.uuid));
+
+    match args.sort.as_str() {
+        "oldest" => rows.sort_by(|a, b| a.uuid.cmp(&b.uuid)),
+        "title" => rows.sort_by_key(|a| a.title().to_lowercase()),
+        // "newest" (default): UUIDv7 is time-ordered, so reverse-uuid is newest-first.
+        _ => rows.sort_by(|a, b| b.uuid.cmp(&a.uuid)),
+    }
+
+    if format == "json" {
+        println!("{}", crate::output::render_issues(&cache, &rows));
+        return Ok(0);
+    }
 
     if rows.is_empty() {
         println!("No matching issues.");
@@ -349,12 +559,17 @@ fn cmd_ls(state: Option<String>, label: Option<String>, format: String) -> Resul
 
     for issue in rows {
         let d = cache.display_of(&issue.uuid);
-        let mark = match issue.state().state {
-            State::Open => "open",
-            State::Closed => "closed",
-        };
+        let mark = issue.state().state.as_str();
+        let arch = if issue.archived() { " (archived)" } else { "" };
         if format == "full" {
-            println!("{} ({})  [{}]  {}", d.nonce, d.short, mark, issue.title());
+            println!(
+                "{} ({})  [{}]{}  {}",
+                d.nonce,
+                d.short,
+                mark,
+                arch,
+                issue.title()
+            );
             if let Some(a) = issue.assignee() {
                 println!("    assignee: {a}");
             }
@@ -374,11 +589,12 @@ fn cmd_ls(state: Option<String>, label: Option<String>, format: String) -> Resul
                 format!("  [{}]", labels.join(", "))
             };
             println!(
-                "{:<12} {:<8} {:<7} {}{}",
+                "{:<12} {:<8} {:<7} {}{}{}",
                 d.nonce,
                 d.short,
                 mark,
                 issue.title(),
+                arch,
                 label_str
             );
         }
@@ -386,11 +602,40 @@ fn cmd_ls(state: Option<String>, label: Option<String>, format: String) -> Resul
     Ok(0)
 }
 
-fn cmd_show(id: String, ops: bool) -> Result<i32> {
+/// Case-insensitive substring match over an issue's title, description, labels,
+/// and comment text. `term` is expected already lowercased.
+fn issue_matches_search(issue: &crate::model::Issue, term: &str) -> bool {
+    if issue.title().to_lowercase().contains(term)
+        || issue.description().to_lowercase().contains(term)
+    {
+        return true;
+    }
+    if issue
+        .labels()
+        .iter()
+        .any(|l| l.to_lowercase().contains(term))
+    {
+        return true;
+    }
+    issue
+        .comments
+        .iter()
+        .any(|c| c.text.to_lowercase().contains(term))
+}
+
+fn cmd_show(id: String, ops: bool, json: bool) -> Result<i32> {
     let backend = backend()?;
     let cache = Cache::build(&backend)?;
     let uuid = cache.resolve(&id)?;
     let d = cache.display_of(&uuid);
+
+    if json {
+        let issue = cache
+            .issue(&uuid)
+            .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
+        println!("{}", crate::output::render_issue(&cache, issue));
+        return Ok(0);
+    }
 
     if ops {
         // Raw operation log: the ground truth the folded view is computed from.
@@ -444,6 +689,9 @@ fn cmd_show(id: String, ops: bool) -> Result<i32> {
         println!("Labels:   {}", labels.join(", "));
     }
     println!("Creator:  {}", issue.creator);
+    if issue.archived() {
+        println!("Archived: yes");
+    }
     if !issue.description().is_empty() {
         println!("\n{}", issue.description());
     }
@@ -462,14 +710,57 @@ fn cmd_show(id: String, ops: bool) -> Result<i32> {
     Ok(0)
 }
 
-fn cmd_comment(id: String, text: String) -> Result<i32> {
+fn cmd_comment(id: String, text: Option<String>) -> Result<i32> {
     let backend = backend()?;
     let cache = Cache::build(&backend)?;
     let uuid = cache.resolve(&id)?;
+
+    let text = match text {
+        Some(t) => t,
+        None => edit_in_editor("# Write your comment above. Lines starting with # are ignored.")?,
+    };
+    if text.trim().is_empty() {
+        println!("Empty comment, nothing added.");
+        return Ok(0);
+    }
+
     let store = Store::new(&backend);
     store.append(&uuid, OpKind::Comment { text })?;
     println!("Added comment to {}", cache.display_of(&uuid).nonce);
     Ok(0)
+}
+
+/// Open `$EDITOR` (or `$VISUAL`, else `vi`) on a temporary file seeded with
+/// `template`, and return the saved content with comment lines (`#`) and
+/// surrounding blank lines stripped.
+fn edit_in_editor(template: &str) -> Result<String> {
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+
+    // A unique-enough temp path without pulling wall-clock into the model:
+    // the process id plus the git dir keeps concurrent editors from clashing.
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("gli-COMMENT-{}.md", std::process::id()));
+    std::fs::write(&path, format!("\n{template}\n")).context("writing editor template")?;
+
+    let status = std::process::Command::new(&editor)
+        .arg(&path)
+        .status()
+        .with_context(|| format!("launching editor '{editor}'"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&path);
+        return Err(anyhow::anyhow!("editor '{editor}' exited without saving"));
+    }
+
+    let raw = std::fs::read_to_string(&path).context("reading edited file")?;
+    let _ = std::fs::remove_file(&path);
+    let body = raw
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(body.trim().to_string())
 }
 
 fn cmd_edit(
@@ -580,6 +871,35 @@ fn cmd_state(
         cache.display_of(&uuid).nonce,
         target.as_str()
     );
+    Ok(0)
+}
+
+fn cmd_archive(id: String, purge: bool) -> Result<i32> {
+    let backend = backend()?;
+    let cache = Cache::build(&backend)?;
+    let uuid = cache.resolve(&id)?;
+    let nonce = cache.display_of(&uuid).nonce;
+
+    if purge {
+        // Irreversible: delete the ref outright. Nothing else references it.
+        backend.delete_ref(&crate::store::refname(&uuid))?;
+        println!("Permanently deleted {nonce} ({uuid}).");
+        return Ok(0);
+    }
+
+    let store = Store::new(&backend);
+    store.append(&uuid, OpKind::SetArchived { archived: true })?;
+    println!("Archived {nonce}. Restore it with `gli restore {nonce}`.");
+    Ok(0)
+}
+
+fn cmd_restore(id: String) -> Result<i32> {
+    let backend = backend()?;
+    let cache = Cache::build(&backend)?;
+    let uuid = cache.resolve(&id)?;
+    let store = Store::new(&backend);
+    store.append(&uuid, OpKind::SetArchived { archived: false })?;
+    println!("Restored {}.", cache.display_of(&uuid).nonce);
     Ok(0)
 }
 
@@ -700,4 +1020,58 @@ fn cmd_fsck() -> Result<i32> {
         eprintln!("fsck: {} problem(s) found.", report.problems.len());
         Ok(1)
     }
+}
+
+/// Validate that a config key is one gli understands.
+fn check_config_key(key: &str) -> Result<()> {
+    if CONFIG_KEYS.contains(&key) {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "unknown config key '{key}' (known: {})",
+            CONFIG_KEYS.join(", ")
+        ))
+    }
+}
+
+fn cmd_config(action: ConfigAction) -> Result<i32> {
+    let backend = backend()?;
+    match action {
+        ConfigAction::Get { key } => {
+            check_config_key(&key)?;
+            if let Some(v) = backend.config(&format!("gli.default.{key}")) {
+                println!("{v}");
+            }
+        }
+        ConfigAction::Set { key, value } => {
+            check_config_key(&key)?;
+            backend.set_config(&format!("gli.default.{key}"), &value)?;
+            println!("Set default.{key} = {value}");
+        }
+        ConfigAction::List => {
+            let mut any = false;
+            for key in CONFIG_KEYS {
+                if let Some(v) = backend.config(&format!("gli.default.{key}")) {
+                    println!("{key} = {v}");
+                    any = true;
+                }
+            }
+            if !any {
+                println!("No defaults set. Use `gli config set <key> <value>`.");
+            }
+        }
+    }
+    Ok(0)
+}
+
+fn cmd_completions(shell: clap_complete::Shell) {
+    let mut cmd = Cli::command();
+    clap_complete::generate(shell, &mut cmd, "gli", &mut std::io::stdout());
+}
+
+fn cmd_man() -> Result<i32> {
+    let man = clap_mangen::Man::new(Cli::command());
+    man.render(&mut std::io::stdout())
+        .context("rendering man page")?;
+    Ok(0)
 }

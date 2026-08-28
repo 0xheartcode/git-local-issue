@@ -10,6 +10,39 @@ and this project adheres to Semantic Versioning (https://semver.org/spec/v2.0.0.
 Work continues toward 0.2.0. Multi-machine sync and CRDT merge across actors are
 the next focus (see ROADMAP.md).
 
+A batch of single-user UX features landed. These are additive: no existing
+command changes behaviour, and the on-disk Format-Version stays at `1`.
+
+### Added
+
+- `gli archive <id>` / `gli restore <id>`: soft-hide an issue and bring it back.
+  Archiving is reversible and sync-safe (a new `set-archived` operation that
+  folds as Last-Writer-Wins). `gli rm` is a visible alias for `archive`.
+  `gli archive <id> --purge` permanently deletes the underlying ref
+  (irreversible and not sync-safe).
+- Richer `gli ls` filters, all combining with AND: repeatable `-l/--label`
+  (AND), `--assignee`, `--priority`, `--creator` (alias `--author`),
+  `-s/--search` (free-text over title, description, labels, and comments),
+  `--state`, plus `--sort newest|oldest|title`. Archived issues are hidden by
+  default: `--archived` shows only archived issues, `--all` shows both.
+- Machine-readable output: `--format json` on `gli ls` and `--json` on
+  `gli show`. The stable schema includes uuid, nonce, short, title, description,
+  state, reason, fixed_by, assignee, priority, labels, archived, creator,
+  comment_count, and comments.
+- `$EDITOR` integration: `gli comment <id>` with no text argument opens
+  `$EDITOR` (falling back to `$VISUAL`, then `vi`) to compose the comment.
+- `gli config get|set|list`: per-repository defaults stored in git config under
+  `gli.default.*`. Keys are priority, assignee, labels (comma-separated), and
+  format. `create` and `ls` fall back to these when the matching flag is absent
+  (an explicit flag always wins).
+- `gli completions <bash|zsh|fish|powershell|elvish>` prints a shell completion
+  script, and `gli man` prints the man page (roff).
+
+### Fixed
+
+- SIGPIPE is reset to its default on Unix, so `gli ls | head` and
+  `gli man | head` no longer error or panic on a closed pipe.
+
 ## [0.1.0] - 2026-08-28
 
 Initial release: the local, single-user core. Issues are stored natively in Git

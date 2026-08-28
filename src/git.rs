@@ -59,6 +59,9 @@ pub trait GitBackend {
     /// Point a ref at `new`, optionally guarded by its expected `old` value
     /// (compare-and-swap; pass `None` when creating a new ref).
     fn update_ref(&self, refname: &str, new: &str, old: Option<&str>) -> Result<()>;
+
+    /// Delete a ref outright (used by `archive --purge`; irreversible).
+    fn delete_ref(&self, refname: &str) -> Result<()>;
 }
 
 /// A [`GitBackend`] that shells out to the `git` CLI.
@@ -251,6 +254,11 @@ impl GitBackend for CliBackend {
             Some(old) => self.run(&["update-ref", refname, new, old], None)?,
             None => self.run(&["update-ref", refname, new], None)?,
         };
+        Ok(())
+    }
+
+    fn delete_ref(&self, refname: &str) -> Result<()> {
+        self.run(&["update-ref", "-d", refname], None)?;
         Ok(())
     }
 }
