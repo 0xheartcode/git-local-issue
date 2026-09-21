@@ -350,3 +350,82 @@ fn parse_identity(s: &str) -> (String, String, i64) {
         .unwrap_or(0);
     (name, email, time)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Frame `content` as one `cat-file --batch` record (header, body, newline).
+    fn frame(sha: &str, content: &str) -> Vec<u8> {
+        let mut v = format!("{sha} commit {}\n", content.len()).into_bytes();
+        v.extend_from_slice(content.as_bytes());
+        v.push(b'\n');
+        v
+    }
+
+    #[test]
+    fn parse_identity_extracts_name_email_and_time() {
+        let (name, email, time) =
+            parse_identity("Alice Example <alice@example.com> 1700000000 +0200");
+        assert_eq!(name, "Alice Example");
+        assert_eq!(email, "alice@example.com");
+        assert_eq!(time, 1700000000);
+    }
+
+    #[test]
+    fn parse_identity_without_brackets_keeps_whole_as_name() {
+        let (name, email, time) = parse_identity("no-brackets-here");
+        assert_eq!(name, "no-brackets-here");
+        assert_eq!(email, "");
+        assert_eq!(time, 0);
+    }
+
+    #[test]
+    fn parse_identity_with_reversed_brackets_falls_back_safely() {
+        // '>' before '<' must not be read as a name/email split (a naive slice
+        // would panic): the whole string becomes the name.
+        let (name, email, time) = parse_identity("a > b < c");
+        assert_eq!(name, "a > b < c");
+        assert_eq!(email, "");
+        assert_eq!(time, 0);
+    }
+
+    #[test]
+    fn parse_batch_reads_multiple_length_framed_commits() {
+        let c1 = "tree t1\nauthor A <a@x> 100 +0000\n\nFirst\n\nbody one";
+        let c2 = "tree t2\nparent p1\nauthor B <b@x> 200 +0000\n\nSecond";
+        let mut bytes = frame("sha1", c1);
+        bytes.extend(frame("sha2", c2));
+
+        let commits = parse_batch(&bytes).unwrap();
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].sha, "sha1");
+        assert_eq!(commits[0].author_name, "A");
+        assert_eq!(commits[0].author_email, "a@x");
+        assert_eq!(commits[0].author_time, 100);
+        assert_eq!(commits[0].message, "First\n\nbody one");
+        assert_eq!(commits[1].sha, "sha2");
+        assert_eq!(commits[1].parents, vec!["p1".to_string()]);
+        assert_eq!(commits[1].message, "Second");
+    }
+
+    #[test]
+    fn parse_batch_parses_final_record_without_trailing_newline() {
+        // content_end == bytes.len() exactly: must still parse. Pins the
+        // `content_end > len` boundary against an off-by-one (`>=`/`==`).
+        let c = "tree t\nauthor A <a@x> 5 +0000\n\nHi";
+        let mut bytes = format!("shaX commit {}\n", c.len()).into_bytes();
+        bytes.extend_from_slice(c.as_bytes()); // deliberately no trailing newline
+        let commits = parse_batch(&bytes).unwrap();
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].message, "Hi");
+    }
+
+    #[test]
+    fn parse_batch_rejects_truncated_content() {
+        // Header claims more bytes than are present: a clean error, never a panic.
+        let mut bytes = b"shaX commit 999\n".to_vec();
+        bytes.extend_from_slice(b"too short");
+        assert!(parse_batch(&bytes).is_err());
+    }
+}

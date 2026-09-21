@@ -183,6 +183,27 @@ mod tests {
     }
 
     #[test]
+    fn short_prefix_is_first_eight_hex() {
+        assert_eq!(short_prefix("0123456789abcdef0123456789abcdef"), "01234567");
+        // Shorter-than-eight ids return the whole string.
+        assert_eq!(short_prefix("abc"), "abc");
+    }
+
+    #[test]
+    fn resolve_empty_query_matches_nothing() {
+        // The empty string is neither a nonce nor a hex prefix. Without the
+        // non-empty guard it would `starts_with("")`-match every uuid, so this
+        // pins that guard (a `&&` -> `||` mutation resurfaces as an ambiguity).
+        let issues = vec![
+            issue_with("018f0000000000000000000000000001", "alice"),
+            issue_with("018f0000000000000000000000000002", "bob"),
+        ];
+        let d = assign_display_ids(&issues);
+        assert!(matches!(resolve("", &d), Resolution::None));
+        assert!(matches!(resolve("   ", &d), Resolution::None));
+    }
+
+    #[test]
     fn same_actor_collision_resolves_by_uuid_order() {
         // The scenario the plan calls out: the same actor minted "alice-1" from
         // two offline clones. The earlier UUIDv7 keeps the number; the later

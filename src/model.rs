@@ -858,6 +858,142 @@ mod tests {
     }
 
     #[test]
+    fn lww_register_apply_and_ordering() {
+        // A fresh register is unset.
+        let mut r: Lww<String> = Lww::default();
+        assert!(!r.is_set());
+
+        // The first write always lands, even at the zero stamp (lamport 0, empty
+        // op-id): this is what the `!self.set` guard protects.
+        r.apply("first".into(), 0, "");
+        assert!(r.is_set());
+        assert_eq!(r.get(), "first");
+
+        // A strictly greater stamp overwrites.
+        r.apply("second".into(), 1, "op1");
+        assert_eq!(r.get(), "second");
+
+        // An equal stamp does NOT overwrite (strictly-greater, not >=).
+        r.apply("loser".into(), 1, "op1");
+        assert_eq!(r.get(), "second");
+
+        // A lower stamp does not overwrite.
+        r.apply("stale".into(), 0, "zzz");
+        assert_eq!(r.get(), "second");
+    }
+
+    #[test]
+    fn orset_present_and_removed() {
+        let mut s = OrSet::default();
+        assert!(!s.contains("x"));
+        s.add("x", "tag1");
+        assert!(s.contains("x"));
+        assert_eq!(s.values(), vec!["x".to_string()]);
+        s.remove("x");
+        assert!(!s.contains("x"));
+        assert!(s.values().is_empty());
+    }
+
+    #[test]
+    fn lwwmap_hides_unset_and_cleared_keys() {
+        let mut m = LwwMap::default();
+        // Unset key -> None.
+        assert_eq!(m.get("k"), None);
+        // Set -> value.
+        m.apply("k", "v".into(), 1, "op1");
+        assert_eq!(m.get("k"), Some("v"));
+        assert_eq!(m.entries(), vec![("k".to_string(), "v".to_string())]);
+        // Cleared (empty value at a higher stamp) -> None, and dropped from entries.
+        m.apply("k", String::new(), 2, "op2");
+        assert_eq!(m.get("k"), None);
+        assert!(m.entries().is_empty());
+    }
+
+    #[test]
+    fn fold_stores_a_file_note_only_when_non_empty() {
+        // AddFile with a real note records it; AddFile with an empty note does not.
+        let ops = vec![
+            create("c", 1, "t"),
+            op(
+                "f1",
+                2,
+                "alice",
+                OpKind::AddFile {
+                    path: "src/a.rs".into(),
+                    note: "why".into(),
+                },
+            ),
+            op(
+                "f2",
+                3,
+                "alice",
+                OpKind::AddFile {
+                    path: "src/b.rs".into(),
+                    note: String::new(),
+                },
+            ),
+        ];
+        let issue = Issue::fold("uuid", &ops).unwrap();
+        let files = issue.files();
+        let a = files.iter().find(|(p, _)| p == "src/a.rs").unwrap();
+        let b = files.iter().find(|(p, _)| p == "src/b.rs").unwrap();
+        assert_eq!(a.1.as_deref(), Some("why"));
+        assert_eq!(b.1, None);
+    }
+
+    #[test]
+    fn op_subject_and_body_are_derived_correctly() {
+        // first_line takes only the first line of a multi-line string.
+        assert_eq!(first_line("head\nrest"), "head");
+        assert_eq!(first_line("solo"), "solo");
+
+        // A create with no description carries no body (guard is `!is_empty`).
+        let empty = create("c", 1, "Title here");
+        assert_eq!(empty.subject(), "Create: Title here");
+        assert_eq!(empty.body(), None);
+
+        // A create with a description carries it as the body.
+        let with_desc = op(
+            "c2",
+            1,
+            "alice",
+            OpKind::Create {
+                title: "T".into(),
+                description: "the body".into(),
+                labels: Vec::new(),
+                assignee: None,
+                priority: None,
+            },
+        );
+        assert_eq!(with_desc.body(), Some("the body"));
+
+        // An add-file op with an empty note carries no body.
+        let file_no_note = op(
+            "f",
+            1,
+            "alice",
+            OpKind::AddFile {
+                path: "p".into(),
+                note: String::new(),
+            },
+        );
+        assert_eq!(file_no_note.subject(), "Add file: p");
+        assert_eq!(file_no_note.body(), None);
+
+        // A set-file-note op with an empty note also carries no body.
+        let note_cleared = op(
+            "n",
+            1,
+            "alice",
+            OpKind::SetFileNote {
+                path: "p".into(),
+                note: String::new(),
+            },
+        );
+        assert_eq!(note_cleared.body(), None);
+    }
+
+    #[test]
     fn lww_title_higher_lamport_wins_regardless_of_order() {
         // Apply the later-lamport op first; the fold must still pick it.
         let ops = vec![

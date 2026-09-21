@@ -141,6 +141,27 @@ mod tests {
     }
 
     #[test]
+    fn trailer_shaped_line_glued_to_body_is_not_metadata() {
+        // "Actor: x" sits directly under a body line with no blank separator, so
+        // it is part of the body, not the trailer block. This pins the paragraph
+        // rule (the blank-line-above guard) that several mutants target.
+        let msg = "Subject\n\nSome body text\nActor: x\n";
+        let (subject, body, trailers) = split_message(msg);
+        assert_eq!(subject, "Subject");
+        assert_eq!(body, "Some body text\nActor: x");
+        assert!(trailers.is_empty());
+    }
+
+    #[test]
+    fn message_with_no_trailers_keeps_all_body() {
+        let msg = "Subject\n\nJust a body, no trailers.\n";
+        let (subject, body, trailers) = split_message(msg);
+        assert_eq!(subject, "Subject");
+        assert_eq!(body, "Just a body, no trailers.");
+        assert!(trailers.is_empty());
+    }
+
+    #[test]
     fn empty_trailer_value_is_preserved() {
         let msg = "S\n\nAssignee:\nOp: set-assignee\n";
         let (_, _, trailers) = split_message(msg);

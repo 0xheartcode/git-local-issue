@@ -183,3 +183,168 @@ impl<'a> Store<'a> {
 pub fn refname(uuid: &str) -> String {
     format!("refs/issues/{uuid}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn over_limit() -> String {
+        "x".repeat(MAX_FIELD_BYTES + 1)
+    }
+
+    #[test]
+    fn validate_op_rejects_oversized_content_for_every_kind() {
+        assert!(
+            validate_op(&OpKind::Create {
+                title: over_limit(),
+                description: String::new(),
+                labels: Vec::new(),
+                assignee: None,
+                priority: None,
+            })
+            .is_err()
+        );
+        assert!(validate_op(&OpKind::Comment { text: over_limit() }).is_err());
+        assert!(validate_op(&OpKind::SetTitle { title: over_limit() }).is_err());
+        assert!(
+            validate_op(&OpKind::SetDescription {
+                description: over_limit()
+            })
+            .is_err()
+        );
+        assert!(
+            validate_op(&OpKind::SetField {
+                key: "k".into(),
+                value: over_limit(),
+            })
+            .is_err()
+        );
+        assert!(
+            validate_op(&OpKind::AddFile {
+                path: "p".into(),
+                note: over_limit(),
+            })
+            .is_err()
+        );
+        assert!(
+            validate_op(&OpKind::SetFileNote {
+                path: "p".into(),
+                note: over_limit(),
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn check_size_boundary_is_inclusive_at_the_limit() {
+        // Exactly the limit is allowed; one byte over is refused. This also pins
+        // MAX_FIELD_BYTES at 1024*1024 (a `*`->`+` mutation drops it to ~2 KiB,
+        // which this multi-kilobyte "ok" case would then wrongly reject).
+        assert!(check_size("t", &"x".repeat(MAX_FIELD_BYTES)).is_ok());
+        assert!(check_size("t", &"x".repeat(MAX_FIELD_BYTES + 1)).is_err());
+        assert!(validate_op(&OpKind::SetTitle { title: "x".repeat(4096) }).is_ok());
+    }
+
+    // --- Mock-backend tests for author derivation and append's retry loop. ---
+
+    use crate::git::{RawCommit, RefEntry};
+    use std::cell::Cell;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    /// A minimal in-memory backend. `fail_updates` counts how many `update_ref`
+    /// calls fail (with a git-shaped error, so `append` treats them as CAS
+    /// losses) before one succeeds.
+    struct MockBackend {
+        cfg: HashMap<String, String>,
+        fail_updates: Cell<u32>,
+    }
+
+    impl MockBackend {
+        fn new() -> Self {
+            MockBackend {
+                cfg: HashMap::new(),
+                fail_updates: Cell::new(0),
+            }
+        }
+    }
+
+    impl GitBackend for MockBackend {
+        fn repo_root(&self) -> Result<PathBuf> {
+            Ok(PathBuf::from("/repo"))
+        }
+        fn config(&self, key: &str) -> Option<String> {
+            self.cfg.get(key).cloned()
+        }
+        fn list_issue_refs(&self) -> Result<Vec<RefEntry>> {
+            Ok(vec![RefEntry {
+                uuid: "u".into(),
+                tip: "tip0".into(),
+            }])
+        }
+        fn read_chain(&self, _tip: &str) -> Result<Vec<RawCommit>> {
+            Ok(Vec::new())
+        }
+        fn commit_op(&self, _parent: Option<&str>, _message: &str, _author: &Author) -> Result<String> {
+            Ok("newcommit".into())
+        }
+        fn update_ref(&self, _refname: &str, _new: &str, _old: Option<&str>) -> Result<()> {
+            let remaining = self.fail_updates.get();
+            if remaining > 0 {
+                self.fail_updates.set(remaining - 1);
+                Err(GliError::Git("simulated CAS loss".into()))
+            } else {
+                Ok(())
+            }
+        }
+        fn delete_ref(&self, _refname: &str) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn author_name_falls_back_to_email_local_part() {
+        // No user.name set: the name is derived from the email's non-empty local
+        // part. Pins the `!s.is_empty()` filter (a deleted `!` would drop the
+        // local part and yield the "gli" fallback instead).
+        let mut backend = MockBackend::new();
+        backend
+            .cfg
+            .insert("user.email".into(), "alice@example.com".into());
+        let store = Store::new(&backend);
+        let author = store.author();
+        assert_eq!(author.name, "alice");
+        assert_eq!(author.email, "alice@example.com");
+    }
+
+    #[test]
+    fn append_retries_past_a_transient_cas_loss() {
+        // Two update_ref calls fail, the third succeeds: append must keep trying
+        // and return Ok. A broken retry bound (`>=` -> `<`) would give up first.
+        let backend = MockBackend {
+            cfg: HashMap::new(),
+            fail_updates: Cell::new(2),
+        };
+        let store = Store::new(&backend);
+        let out = store.append("u", OpKind::Comment { text: "hi".into() });
+        assert!(out.is_ok());
+    }
+
+    #[test]
+    fn append_gives_up_with_a_conflict_after_max_attempts() {
+        // update_ref always fails: append exhausts its retries and reports a
+        // Conflict tagged with the full attempt count. Pins both the attempt
+        // counter (`+=`) and the retry bound (`>=`).
+        let backend = MockBackend {
+            cfg: HashMap::new(),
+            fail_updates: Cell::new(1000),
+        };
+        let store = Store::new(&backend);
+        match store.append("u", OpKind::Comment { text: "hi".into() }) {
+            Err(GliError::Conflict { attempts, .. }) => {
+                assert_eq!(attempts, MAX_APPEND_ATTEMPTS);
+            }
+            other => panic!("expected Conflict after max attempts, got {other:?}"),
+        }
+    }
+}
