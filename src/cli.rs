@@ -164,6 +164,7 @@ becomes its own operation. Editing the description (--desc) is supported, not ju
 (git-bug #1488).",
         after_help = "EXAMPLES:\n  gli edit alice-1 --title \"Clearer title\"\n  \
 gli edit alice-1 --add-label triaged --remove-label needs-info\n  \
+gli edit alice-1 -p high        # change the priority\n  \
 gli edit alice-1 -a \"\"   # clear the assignee"
     )]
     Edit {
@@ -190,6 +191,9 @@ gli edit alice-1 -a \"\"   # clear the assignee"
         /// Remove an assignee; repeat for several.
         #[arg(long = "remove-assignee")]
         remove_assignee: Vec<String>,
+        /// Set the priority (free-form, e.g. low|medium|high); pass "" to clear.
+        #[arg(short = 'p', long = "priority")]
+        priority: Option<String>,
     },
 
     /// Open or close an issue.
@@ -491,6 +495,7 @@ fn dispatch(command: Command) -> Result<i32> {
             assignee,
             add_assignee,
             remove_assignee,
+            priority,
         } => cmd_edit(EditArgs {
             id,
             title,
@@ -500,6 +505,7 @@ fn dispatch(command: Command) -> Result<i32> {
             assignee,
             add_assignee,
             remove_assignee,
+            priority,
         }),
         Command::State {
             id,
@@ -927,6 +933,7 @@ struct EditArgs {
     assignee: Option<String>,
     add_assignee: Vec<String>,
     remove_assignee: Vec<String>,
+    priority: Option<String>,
 }
 
 fn cmd_edit(args: EditArgs) -> Result<i32> {
@@ -939,6 +946,7 @@ fn cmd_edit(args: EditArgs) -> Result<i32> {
         assignee,
         add_assignee,
         remove_assignee,
+        priority,
     } = args;
     let backend = backend()?;
     let cache = Cache::build(&backend)?;
@@ -1020,10 +1028,25 @@ fn cmd_edit(args: EditArgs) -> Result<i32> {
         println!("  remove assignee: {who}");
         applied += 1;
     }
+    if let Some(p) = priority {
+        let cleared = p.is_empty();
+        store.append(
+            &uuid,
+            OpKind::SetPriority {
+                priority: Some(p.clone()).filter(|s| !s.is_empty()),
+            },
+        )?;
+        if cleared {
+            println!("  clear priority");
+        } else {
+            println!("  set priority: {p}");
+        }
+        applied += 1;
+    }
 
     if applied == 0 {
         println!(
-            "Nothing to change. Pass --title, --desc, --add-label, --remove-label, -a, --add-assignee, or --remove-assignee."
+            "Nothing to change. Pass --title, --desc, --add-label, --remove-label, -a, --add-assignee, --remove-assignee, or -p."
         );
     } else {
         println!("Applied {applied} change(s) to {nonce}");

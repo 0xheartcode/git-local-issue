@@ -8,8 +8,14 @@
 use std::process::Command;
 
 fn main() {
-    // Rebuild when HEAD moves so the stamp stays current.
+    // Rebuild when HEAD moves so the stamp stays current. Watch `.git/HEAD`
+    // itself (branch switches, detached checkouts) AND the ref it points at, so
+    // a new commit on the current branch also re-stamps: committing moves the
+    // branch ref, not the HEAD file.
     println!("cargo:rerun-if-changed=.git/HEAD");
+    if let Some(head_ref) = git(&["symbolic-ref", "-q", "HEAD"]) {
+        println!("cargo:rerun-if-changed=.git/{head_ref}");
+    }
 
     let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
     let sha = git(&["rev-parse", "--short=10", "HEAD"]);

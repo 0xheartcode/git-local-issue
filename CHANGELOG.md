@@ -15,6 +15,10 @@ command changes behaviour, and the on-disk Format-Version stays at `1`.
 
 ### Added
 
+- `gli edit <id> -p/--priority <value>`: change an issue's priority after
+  creation (pass `""` to clear it). Previously priority could only be set at
+  `create` time, though the `SetPriority` operation already existed. Found by
+  dogfooding.
 - `gli archive <id>` / `gli restore <id>`: soft-hide an issue and bring it back.
   Archiving is reversible and sync-safe (a new `set-archived` operation that
   folds as Last-Writer-Wins). `gli rm` is a visible alias for `archive`.
@@ -67,7 +71,8 @@ the on-disk Format-Version at `1`.
   built the binary, for example `gli 0.1.0 (169b1c5fbb 2026-08-28T12:23:23+00:00)`.
   The stamp uses the commit SHA and the commit timestamp (git `%cI`, not a
   wall-clock build time), so builds stay reproducible, and it falls back to the
-  plain version when `.git` is absent.
+  plain version when `.git` is absent. The build script now also re-stamps when
+  a new commit lands on the current branch (not only on a branch switch).
 
 ### Fixed
 

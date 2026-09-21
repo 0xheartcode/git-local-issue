@@ -47,6 +47,27 @@ fn new_repo() -> TempDir {
 }
 
 #[test]
+fn edit_changes_and_clears_priority() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "Prio me", "-p", "low"]);
+
+    // Change it.
+    let (out, ok) = gli(dir, &["edit", "alice-1", "-p", "high"]);
+    assert!(ok && out.contains("set priority: high"), "got: {out}");
+    let (json, _) = gli(dir, &["show", "alice-1", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(v["priority"], "high");
+
+    // Clear it with an empty value.
+    let (out, ok) = gli(dir, &["edit", "alice-1", "--priority", ""]);
+    assert!(ok && out.contains("clear priority"), "got: {out}");
+    let (json, _) = gli(dir, &["show", "alice-1", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(v["priority"].is_null(), "priority should be cleared: {json}");
+}
+
+#[test]
 fn archive_hides_and_restore_shows() {
     let repo = new_repo();
     let dir = repo.path();
