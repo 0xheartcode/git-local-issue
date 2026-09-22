@@ -12,6 +12,7 @@ Work continues toward 0.2.0; multi-machine sync and CRDT merge across actors are
 
 ### Added
 
+- `gli comment edit <id> <number> [text]` and `gli comment rm <id> <number>`: edit or soft-delete a comment (referenced by its number in `gli show`). Editing supersedes the text via an append-only `edit-comment` op (the original stays in history; the comment is marked "(edited)"); `rm` appends a `hide-comment` tombstone that folds the comment to "[deleted]" while preserving its text. Both are sync-safe and never rewrite the op chain. The plain `gli comment <id> [text]` add form is unchanged. JSON gains `edited` and `hidden` per comment.
 - `gli edit <id> -p/--priority <value>`: change an issue's priority after creation (pass `""` to clear it). Previously priority could only be set at `create` time, though the `SetPriority` operation already existed. Found by dogfooding.
 - `gli archive <id>` / `gli restore <id>`: soft-hide an issue and bring it back. Archiving is reversible and sync-safe (a new `set-archived` operation that folds as Last-Writer-Wins). `gli rm` is a visible alias for `archive`. `gli archive <id> --purge` permanently deletes the underlying ref (irreversible and not sync-safe).
 - Richer `gli ls` filters, all combining with AND: repeatable `-l/--label` (AND), `--assignee`, `--priority`, `--creator` (alias `--author`), `-s/--search` (free-text over title, description, labels, and comments), `--state`, plus `--sort newest|oldest|title`. Archived issues are hidden by default: `--archived` shows only archived issues, `--all` shows both.

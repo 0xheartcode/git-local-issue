@@ -147,12 +147,23 @@ description, and every comment in order."
 
     /// Add a comment to an issue.
     #[command(
-        long_about = "Add a comment to an issue. Comments are a grow-only log: each gets \
-a stable id so it never duplicates or reorders, even after a future sync."
+        long_about = "Add a comment to an issue, or edit/remove an existing one. Comments are \
+an append-only log: each gets a stable id so it never duplicates or reorders, even after a \
+future sync. `edit` supersedes a comment's text (the original stays in history and it is marked \
+edited); `rm` soft-deletes it (a tombstone that folds to \"[deleted]\"; content stays in \
+history). Reference a comment by its number in `gli show`.",
+        after_help = "EXAMPLES:\n  gli comment alice-1 \"Reproduced on Firefox\"\n  \
+gli comment alice-1                 # opens $EDITOR\n  \
+gli comment edit alice-1 2 \"Corrected repro\"\n  \
+gli comment rm alice-1 2            # soft-delete comment #2",
+        args_conflicts_with_subcommands = true,
+        subcommand_negates_reqs = true
     )]
     Comment {
+        #[command(subcommand)]
+        action: Option<CommentAction>,
         #[arg(long_help = ID_HELP)]
-        id: String,
+        id: Option<String>,
         /// The comment text. If omitted, $EDITOR opens to compose it.
         text: Option<String>,
     },
@@ -350,6 +361,27 @@ gli file rm alice-1 src/parser.rs"
     },
 }
 
+/// Actions for `gli comment` beyond the default add.
+#[derive(Subcommand)]
+enum CommentAction {
+    /// Edit an existing comment's text (referenced by its number in `gli show`).
+    Edit {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        /// Comment number as shown by `gli show` (1-based).
+        number: usize,
+        /// New text. If omitted, $EDITOR opens to compose it.
+        text: Option<String>,
+    },
+    /// Soft-delete a comment (marks it deleted; the text stays in history).
+    Rm {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        /// Comment number as shown by `gli show` (1-based).
+        number: usize,
+    },
+}
+
 /// Actions for `gli field`.
 #[derive(Subcommand)]
 enum FieldAction {
@@ -485,7 +517,18 @@ fn dispatch(command: Command) -> Result<i32> {
             format,
         }),
         Command::Show { id, ops, json } => cmd_show(id, ops, json),
-        Command::Comment { id, text } => cmd_comment(id, text),
+        Command::Comment { action, id, text } => match action {
+            Some(CommentAction::Edit { id, number, text }) => cmd_comment_edit(id, number, text),
+            Some(CommentAction::Rm { id, number }) => cmd_comment_rm(id, number),
+            None => {
+                let id = id.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "missing issue id. Usage: gli comment <id> [text]  (or: gli comment edit|rm <id> <number>)"
+                    )
+                })?;
+                cmd_comment(id, text)
+            }
+        },
         Command::Edit {
             id,
             title,
@@ -861,9 +904,14 @@ fn cmd_show(id: String, ops: bool, json: bool) -> Result<i32> {
         println!("\nComments ({}):", issue.comments.len());
         for (i, c) in issue.comments.iter().enumerate() {
             let who = c.author.clone().unwrap_or_else(|| c.actor.clone());
-            println!("  #{} by {}:", i + 1, who);
-            for line in c.text.lines() {
-                println!("    {line}");
+            let edited = if c.edited { " (edited)" } else { "" };
+            println!("  #{} by {}{}:", i + 1, who, edited);
+            if c.hidden {
+                println!("    [deleted]");
+            } else {
+                for line in c.text.lines() {
+                    println!("    {line}");
+                }
             }
         }
     }
@@ -887,6 +935,65 @@ fn cmd_comment(id: String, text: Option<String>) -> Result<i32> {
     let store = Store::new(&backend);
     store.append(&uuid, OpKind::Comment { text })?;
     println!("Added comment to {}", cache.display_of(&uuid).nonce);
+    Ok(0)
+}
+
+/// Resolve a 1-based comment number (as shown by `gli show`) to its op-id.
+fn comment_target(issue: &crate::model::Issue, number: usize) -> Result<String> {
+    if number == 0 || number > issue.comments.len() {
+        anyhow::bail!(
+            "no comment #{number}; this issue has {} comment(s)",
+            issue.comments.len()
+        );
+    }
+    Ok(issue.comments[number - 1].id.clone())
+}
+
+fn cmd_comment_edit(id: String, number: usize, text: Option<String>) -> Result<i32> {
+    let backend = backend()?;
+    let cache = Cache::build(&backend)?;
+    let uuid = cache.resolve(&id)?;
+    let issue = cache
+        .issue(&uuid)
+        .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
+    let target = comment_target(issue, number)?;
+    let current = issue.comments[number - 1].text.clone();
+
+    let text = match text {
+        Some(t) => t,
+        None => edit_in_editor(&format!(
+            "{current}\n# Edit the comment above. Lines starting with # are ignored."
+        ))?,
+    };
+    if text.trim().is_empty() {
+        println!("Empty comment, nothing changed.");
+        return Ok(0);
+    }
+
+    let store = Store::new(&backend);
+    store.append(&uuid, OpKind::EditComment { target, text })?;
+    println!(
+        "Edited comment #{number} on {}",
+        cache.display_of(&uuid).nonce
+    );
+    Ok(0)
+}
+
+fn cmd_comment_rm(id: String, number: usize) -> Result<i32> {
+    let backend = backend()?;
+    let cache = Cache::build(&backend)?;
+    let uuid = cache.resolve(&id)?;
+    let issue = cache
+        .issue(&uuid)
+        .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
+    let target = comment_target(issue, number)?;
+
+    let store = Store::new(&backend);
+    store.append(&uuid, OpKind::HideComment { target })?;
+    println!(
+        "Deleted comment #{number} on {} (soft: the text stays in history).",
+        cache.display_of(&uuid).nonce
+    );
     Ok(0)
 }
 

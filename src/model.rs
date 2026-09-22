@@ -123,6 +123,19 @@ pub enum OpKind {
         path: String,
         note: String,
     },
+    /// Replace the text of an existing comment (LWW per comment, keyed by the
+    /// target comment's op-id). The original stays in the log; the fold shows
+    /// the latest text and marks the comment edited. Append-only, sync-safe.
+    EditComment {
+        /// Op-id of the comment being edited.
+        target: String,
+        text: String,
+    },
+    /// Soft-delete a comment (a tombstone keyed by the target comment's op-id).
+    /// The fold renders it as deleted; the original text stays in the log.
+    HideComment {
+        target: String,
+    },
 }
 
 impl OpKind {
@@ -145,6 +158,8 @@ impl OpKind {
             OpKind::AddFile { .. } => "add-file",
             OpKind::RemoveFile { .. } => "remove-file",
             OpKind::SetFileNote { .. } => "set-file-note",
+            OpKind::EditComment { .. } => "edit-comment",
+            OpKind::HideComment { .. } => "hide-comment",
         }
     }
 }
@@ -214,6 +229,8 @@ impl Op {
             OpKind::AddFile { path, .. } => format!("Add file: {path}"),
             OpKind::RemoveFile { path } => format!("Remove file: {path}"),
             OpKind::SetFileNote { path, .. } => format!("Set file note: {path}"),
+            OpKind::EditComment { .. } => "Edit comment".to_string(),
+            OpKind::HideComment { .. } => "Delete comment".to_string(),
         }
     }
 
@@ -225,6 +242,7 @@ impl Op {
             OpKind::SetDescription { description } => Some(description),
             OpKind::AddFile { note, .. } if !note.is_empty() => Some(note),
             OpKind::SetFileNote { note, .. } if !note.is_empty() => Some(note),
+            OpKind::EditComment { text, .. } => Some(text),
             _ => None,
         }
     }
@@ -287,6 +305,9 @@ impl Op {
             OpKind::AddFile { path, .. }
             | OpKind::RemoveFile { path }
             | OpKind::SetFileNote { path, .. } => t.push("Path", path),
+            OpKind::EditComment { target, .. } | OpKind::HideComment { target } => {
+                t.push("Target", target)
+            }
             OpKind::Comment { .. } | OpKind::SetDescription { .. } => {}
         }
         t.push("Op", self.kind.slug());
@@ -412,6 +433,17 @@ impl Op {
                     .ok_or_else(|| malformed("set-file-note has no Path trailer"))?
                     .to_string(),
                 note: body.clone(),
+            },
+            "edit-comment" => OpKind::EditComment {
+                target: get("Target")
+                    .ok_or_else(|| malformed("edit-comment has no Target trailer"))?
+                    .to_string(),
+                text: body.clone(),
+            },
+            "hide-comment" => OpKind::HideComment {
+                target: get("Target")
+                    .ok_or_else(|| malformed("hide-comment has no Target trailer"))?
+                    .to_string(),
             },
             other => return Err(malformed(&format!("unknown Op type '{other}'"))),
         };
@@ -562,6 +594,10 @@ pub struct Comment {
     pub lamport: u64,
     pub timestamp: Option<i64>,
     pub author: Option<String>,
+    /// True once an `edit-comment` op has superseded the original text.
+    pub edited: bool,
+    /// True once a `hide-comment` tombstone has soft-deleted this comment.
+    pub hidden: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -684,7 +720,23 @@ impl Issue {
                     lamport: op.lamport,
                     timestamp: op.timestamp,
                     author: op.author.clone(),
+                    edited: false,
+                    hidden: false,
                 }),
+                // Ops are folded in ascending (lamport, op-id) order, so the last
+                // edit applied for a target is the Last-Writer-Wins winner with no
+                // extra bookkeeping. An edit/hide for an unknown target is ignored.
+                OpKind::EditComment { target, text } => {
+                    if let Some(c) = issue.comments.iter_mut().find(|c| c.id == *target) {
+                        c.text = text.clone();
+                        c.edited = true;
+                    }
+                }
+                OpKind::HideComment { target } => {
+                    if let Some(c) = issue.comments.iter_mut().find(|c| c.id == *target) {
+                        c.hidden = true;
+                    }
+                }
                 OpKind::SetTitle { title } => issue.title.apply(title.clone(), op.lamport, &op.id),
                 OpKind::SetDescription { description } => {
                     issue
@@ -939,6 +991,102 @@ mod tests {
         let b = files.iter().find(|(p, _)| p == "src/b.rs").unwrap();
         assert_eq!(a.1.as_deref(), Some("why"));
         assert_eq!(b.1, None);
+    }
+
+    #[test]
+    fn comment_edit_and_hide_fold_correctly() {
+        let ops = vec![
+            create("c", 1, "t"),
+            op(
+                "m1",
+                2,
+                "alice",
+                OpKind::Comment {
+                    text: "original".into(),
+                },
+            ),
+            op(
+                "m2",
+                3,
+                "alice",
+                OpKind::Comment {
+                    text: "keep me".into(),
+                },
+            ),
+            op(
+                "e1",
+                4,
+                "alice",
+                OpKind::EditComment {
+                    target: "m1".into(),
+                    text: "edited".into(),
+                },
+            ),
+            op(
+                "h1",
+                5,
+                "alice",
+                OpKind::HideComment {
+                    target: "m2".into(),
+                },
+            ),
+        ];
+        let issue = Issue::fold("uuid", &ops).unwrap();
+        assert_eq!(issue.comments.len(), 2);
+        let c1 = issue.comments.iter().find(|c| c.id == "m1").unwrap();
+        assert_eq!(c1.text, "edited");
+        assert!(c1.edited && !c1.hidden);
+        let c2 = issue.comments.iter().find(|c| c.id == "m2").unwrap();
+        // Text is preserved in the fold even though the comment is hidden.
+        assert_eq!(c2.text, "keep me");
+        assert!(c2.hidden && !c2.edited);
+    }
+
+    #[test]
+    fn last_comment_edit_wins() {
+        // Two edits of the same comment: the higher (lamport, op-id) wins (LWW),
+        // independent of fold order.
+        let ops = vec![
+            create("c", 1, "t"),
+            op("m", 2, "alice", OpKind::Comment { text: "v0".into() }),
+            op(
+                "e2",
+                4,
+                "alice",
+                OpKind::EditComment {
+                    target: "m".into(),
+                    text: "v2".into(),
+                },
+            ),
+            op(
+                "e1",
+                3,
+                "alice",
+                OpKind::EditComment {
+                    target: "m".into(),
+                    text: "v1".into(),
+                },
+            ),
+        ];
+        let issue = Issue::fold("uuid", &ops).unwrap();
+        assert_eq!(issue.comments[0].text, "v2");
+    }
+
+    #[test]
+    fn edit_and_hide_comment_round_trip() {
+        for kind in [
+            OpKind::EditComment {
+                target: "abc123".into(),
+                text: "new body\n\nwith blank line".into(),
+            },
+            OpKind::HideComment {
+                target: "abc123".into(),
+            },
+        ] {
+            let o = op("x", 5, "alice", kind.clone());
+            let parsed = Op::from_commit_message(&o.to_commit_message(), "deadbeef").unwrap();
+            assert_eq!(parsed.kind, kind);
+        }
     }
 
     #[test]

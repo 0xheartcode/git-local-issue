@@ -50,6 +50,8 @@ pub struct CommentJson {
     pub actor: String,
     pub author: Option<String>,
     pub text: String,
+    pub edited: bool,
+    pub hidden: bool,
 }
 
 /// Build the JSON DTO for one issue.
@@ -86,6 +88,8 @@ pub fn issue_json(cache: &Cache, issue: &Issue) -> IssueJson {
                 actor: c.actor.clone(),
                 author: c.author.clone(),
                 text: c.text.clone(),
+                edited: c.edited,
+                hidden: c.hidden,
             })
             .collect(),
     }

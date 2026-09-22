@@ -47,6 +47,38 @@ fn new_repo() -> TempDir {
 }
 
 #[test]
+fn comment_edit_and_soft_rm() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "C"]);
+    gli(dir, &["comment", "alice-1", "one"]);
+    gli(dir, &["comment", "alice-1", "two"]);
+
+    // Edit #1 (supersede text) and soft-delete #2 (tombstone).
+    let (out, ok) = gli(dir, &["comment", "edit", "alice-1", "1", "one-edited"]);
+    assert!(ok && out.contains("Edited comment #1"), "got: {out}");
+    let (out, ok) = gli(dir, &["comment", "rm", "alice-1", "2"]);
+    assert!(ok && out.contains("Deleted comment #2"), "got: {out}");
+
+    let (json, _) = gli(dir, &["show", "alice-1", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let c = v["comments"].as_array().unwrap();
+    assert_eq!(c[0]["text"], "one-edited");
+    assert_eq!(c[0]["edited"], true);
+    assert_eq!(c[1]["hidden"], true);
+    // The hidden comment's text is preserved in history, not destroyed.
+    assert_eq!(c[1]["text"], "two");
+
+    // The bare add form (no subcommand) still works.
+    let (_, ok) = gli(dir, &["comment", "alice-1", "three"]);
+    assert!(ok);
+
+    // A bad comment number fails cleanly.
+    let (_, ok) = gli(dir, &["comment", "rm", "alice-1", "99"]);
+    assert!(!ok);
+}
+
+#[test]
 fn edit_changes_and_clears_priority() {
     let repo = new_repo();
     let dir = repo.path();

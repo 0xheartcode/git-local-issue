@@ -48,6 +48,7 @@ fn validate_op(kind: &OpKind) -> Result<()> {
             }
         }
         OpKind::Comment { text } => check_size("comment", text)?,
+        OpKind::EditComment { text, .. } => check_size("comment", text)?,
         OpKind::SetTitle { title } => check_size("title", title)?,
         OpKind::SetDescription { description } => check_size("description", description)?,
         OpKind::AddLabel { label } => crate::model::validate_label(label)?,

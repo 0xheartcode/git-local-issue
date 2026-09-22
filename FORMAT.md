@@ -106,6 +106,7 @@ message is a single paragraph, it is treated as subject/body with no trailers.
 | `Field-Key` | `set-field` | Custom field name. |
 | `Field-Value` | `set-field` | Custom field value (empty clears the key). |
 | `Path` | `add-file`, `remove-file`, `set-file-note` | A single related file path. |
+| `Target` | `edit-comment`, `hide-comment` | The `Op-Id` of the comment this op edits or hides. |
 
 Custom/experimental trailers SHOULD be prefixed `X-` (for example
 `X-Reactions`). Any unknown trailer MUST be ignored, never rejected.
@@ -130,6 +131,8 @@ Custom/experimental trailers SHOULD be prefixed `X-` (for example
 | `add-file` | path (trailer) + note (body) | OR-Set add of path, LWW note per path |
 | `remove-file` | path (trailer) | OR-Set remove of path |
 | `set-file-note` | path (trailer) + note (body) | LWW note per path (edit) |
+| `edit-comment` | target comment `Op-Id` (trailer) + new text (body) | LWW per comment text, keyed by target; original stays in the log |
+| `hide-comment` | target comment `Op-Id` (trailer) | soft-delete tombstone; folds the comment to "deleted", text preserved |
 
 ## 6. Folding to current state (CRDT rules)
 
