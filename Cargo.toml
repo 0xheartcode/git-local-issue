@@ -37,3 +37,10 @@ libc = "0.2"
 [dev-dependencies]
 tempfile = "3"
 serde_json = "1"
+
+# The profile cargo-dist builds release binaries with. Required by the release
+# workflow (`dist build --profile dist`); without it the build fails with
+# "profile `dist` is not defined".
+[profile.dist]
+inherits = "release"
+lto = "thin"
