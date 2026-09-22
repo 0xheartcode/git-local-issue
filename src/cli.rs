@@ -155,7 +155,8 @@ history). Reference a comment by its number in `gli show`.",
         after_help = "EXAMPLES:\n  gli comment alice-1 \"Reproduced on Firefox\"\n  \
 gli comment alice-1                 # opens $EDITOR\n  \
 gli comment edit alice-1 2 \"Corrected repro\"\n  \
-gli comment rm alice-1 2            # soft-delete comment #2",
+gli comment rm alice-1 2            # soft-delete comment #2\n  \
+gli comment purge alice-1 2         # permanently erase #2 (rewrites history)",
         args_conflicts_with_subcommands = true,
         subcommand_negates_reqs = true
     )]
@@ -380,6 +381,14 @@ enum CommentAction {
         /// Comment number as shown by `gli show` (1-based).
         number: usize,
     },
+    /// Permanently erase a comment by rewriting the chain (irreversible; NOT
+    /// sync-safe). For a leaked secret, not routine delete; prefer `rm`.
+    Purge {
+        #[arg(long_help = ID_HELP)]
+        id: String,
+        /// Comment number as shown by `gli show` (1-based).
+        number: usize,
+    },
 }
 
 /// Actions for `gli field`.
@@ -520,6 +529,7 @@ fn dispatch(command: Command) -> Result<i32> {
         Command::Comment { action, id, text } => match action {
             Some(CommentAction::Edit { id, number, text }) => cmd_comment_edit(id, number, text),
             Some(CommentAction::Rm { id, number }) => cmd_comment_rm(id, number),
+            Some(CommentAction::Purge { id, number }) => cmd_comment_purge(id, number),
             None => {
                 let id = id.ok_or_else(|| {
                     anyhow::anyhow!(
@@ -994,6 +1004,29 @@ fn cmd_comment_rm(id: String, number: usize) -> Result<i32> {
         "Deleted comment #{number} on {} (soft: the text stays in history).",
         cache.display_of(&uuid).nonce
     );
+    Ok(0)
+}
+
+fn cmd_comment_purge(id: String, number: usize) -> Result<i32> {
+    let backend = backend()?;
+    let cache = Cache::build(&backend)?;
+    let uuid = cache.resolve(&id)?;
+    let issue = cache
+        .issue(&uuid)
+        .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
+    let target = comment_target(issue, number)?;
+    let nonce = cache.display_of(&uuid).nonce;
+
+    let store = Store::new(&backend);
+    let removed = store.purge_comment(&uuid, &target)?;
+    println!("Permanently purged comment #{number} on {nonce} ({removed} op(s) rewritten out).");
+    println!(
+        "This rewrote the issue's history: irreversible, and not sync-safe (a clone that already has it can reintroduce it on merge)."
+    );
+    println!(
+        "The old objects are now unreachable but remain on disk until pruned. To erase them (e.g. a leaked secret), run:"
+    );
+    println!("  git reflog expire --expire=now --all && git gc --prune=now");
     Ok(0)
 }
 

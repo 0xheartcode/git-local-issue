@@ -79,6 +79,49 @@ fn comment_edit_and_soft_rm() {
 }
 
 #[test]
+fn comment_purge_rewrites_the_secret_out() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "P"]);
+    gli(dir, &["comment", "alice-1", "keep one"]);
+    gli(dir, &["comment", "alice-1", "SECRETXYZ"]);
+    gli(dir, &["comment", "alice-1", "keep two"]);
+    // An edit leaves a superseded copy of the secret too; purge must drop it.
+    gli(dir, &["comment", "edit", "alice-1", "2", "SECRETXYZ-2"]);
+
+    let (out, ok) = gli(dir, &["comment", "purge", "alice-1", "2"]);
+    assert!(ok && out.contains("Permanently purged"), "got: {out}");
+
+    // The remaining two comments survive; the purged one is gone entirely.
+    let (json, _) = gli(dir, &["show", "alice-1", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let c = v["comments"].as_array().unwrap();
+    assert_eq!(c.len(), 2);
+    assert_eq!(c[0]["text"], "keep one");
+    assert_eq!(c[1]["text"], "keep two");
+
+    // No reachable git object still contains the secret text.
+    let revs = Command::new("git")
+        .current_dir(dir)
+        .args(["rev-list", "--all"])
+        .output()
+        .unwrap();
+    let mut found = false;
+    for sha in String::from_utf8_lossy(&revs.stdout).lines() {
+        let obj = Command::new("git")
+            .current_dir(dir)
+            .args(["cat-file", "-p", sha])
+            .output()
+            .unwrap();
+        if String::from_utf8_lossy(&obj.stdout).contains("SECRETXYZ") {
+            found = true;
+            break;
+        }
+    }
+    assert!(!found, "secret should be gone from all reachable objects");
+}
+
+#[test]
 fn edit_changes_and_clears_priority() {
     let repo = new_repo();
     let dir = repo.path();

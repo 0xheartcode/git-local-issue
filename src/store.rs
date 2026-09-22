@@ -169,6 +169,77 @@ impl<'a> Store<'a> {
         }
     }
 
+    /// Hard-delete a comment by rewriting the issue's chain WITHOUT the target
+    /// comment op (and any `edit-comment`/`hide-comment` ops referencing it, so
+    /// no superseded copy of the text survives). Every other op is re-committed
+    /// with its original message and author identity preserved (commit dates
+    /// reset to now, as with any history rewrite).
+    ///
+    /// This rewrites history: it is irreversible and NOT sync-safe (another
+    /// clone that already has the comment can reintroduce it on merge). It is
+    /// meant as a rare escape hatch (e.g. a leaked secret), not routine delete.
+    /// Returns the number of ops removed.
+    pub fn purge_comment(&self, uuid: &str, target_op_id: &str) -> Result<usize> {
+        let entry = self
+            .backend
+            .list_issue_refs()?
+            .into_iter()
+            .find(|e| e.uuid == uuid)
+            .ok_or_else(|| GliError::UnknownIssue(uuid.to_string()))?;
+        let old_tip = entry.tip.clone();
+        let raw = self.backend.read_chain(&old_tip)?; // oldest-first
+
+        // Keep every commit except the target comment and ops that reference it.
+        let mut kept: Vec<&crate::git::RawCommit> = Vec::new();
+        let mut removed = 0usize;
+        let mut found = false;
+        for rc in &raw {
+            let op = Op::from_commit_message(&rc.message, &rc.sha)?;
+            let drop = match &op.kind {
+                OpKind::Comment { .. } if op.id == target_op_id => {
+                    found = true;
+                    true
+                }
+                OpKind::EditComment { target, .. } | OpKind::HideComment { target }
+                    if target == target_op_id =>
+                {
+                    true
+                }
+                _ => false,
+            };
+            if drop {
+                removed += 1;
+            } else {
+                kept.push(rc);
+            }
+        }
+        if !found {
+            return Err(GliError::Git(format!(
+                "no comment op {target_op_id} on issue {uuid}"
+            )));
+        }
+
+        // Rebuild the chain from the kept commits, oldest first.
+        let mut parent: Option<String> = None;
+        for rc in kept {
+            let author = Author {
+                name: rc.author_name.clone(),
+                email: rc.author_email.clone(),
+            };
+            let new = self
+                .backend
+                .commit_op(parent.as_deref(), &rc.message, &author)?;
+            parent = Some(new);
+        }
+        let new_tip = parent
+            .ok_or_else(|| GliError::Git("refusing to purge: chain would be empty".into()))?;
+        // Compare-and-swap against the tip we read, so a concurrent write aborts
+        // the rewrite instead of clobbering it.
+        self.backend
+            .update_ref(&refname(uuid), &new_tip, Some(&old_tip))?;
+        Ok(removed)
+    }
+
     /// Read the op log of a single issue by uuid.
     fn load_ops(&self, uuid: &str) -> Result<Vec<Op>> {
         for entry in self.backend.list_issue_refs()? {
