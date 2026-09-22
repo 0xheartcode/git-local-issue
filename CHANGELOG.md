@@ -10,6 +10,10 @@ Entries are kept on a single line each: cargo-dist injects this file into the Gi
 
 Work continues toward 0.2.0; multi-machine sync and CRDT merge across actors are the next focus (see ROADMAP.md). The features below are additive: no existing command changes behaviour, and the on-disk Format-Version stays at `1`.
 
+### Changed
+
+- Display identity is now a number shown as `#1`, `#2`, … instead of the always-actor-scoped `alice-1`. The bare `#N` is used while a number is unambiguous; it becomes the actor-qualified `alice-#1` only once two actors share a number (after a sync). You reference an issue by the bare number (`gli show 1`, since a shell eats a leading `#`), by `alice-1` (still accepted), or by a UUIDv7 prefix. Numbers remain drift-allowed and the UUIDv7 is still the permanent id. JSON gains `handle` (`#1`/`alice-#1`) and `number`, and keeps `nonce` (the `alice-1` form).
+
 ### Added
 
 - `gli comment edit <id> <number> [text]` and `gli comment rm <id> <number>`: edit or soft-delete a comment (referenced by its number in `gli show`). Editing supersedes the text via an append-only `edit-comment` op (the original stays in history; the comment is marked "(edited)"); `rm` appends a `hide-comment` tombstone that folds the comment to "[deleted]" while preserving its text. Both are sync-safe and never rewrite the op chain. The plain `gli comment <id> [text]` add form is unchanged. JSON gains `edited` and `hidden` per comment.

@@ -32,7 +32,7 @@ on-disk format is frozen until v0.1 ships.
 gli init                       # set up refs/issues in the current repo
 gli create "title" [-l label] [-a assignee] [-p priority] [-d desc]
 gli ls [--state ...] [-l label ...] [--assignee ...] [--priority ...] [--creator ...] [-s search] [--sort newest|oldest|title] [--archived|--all] [--format short|full|json]   # alias: gli list
-gli show <id> [--json]         # id = actor-nonce OR uuidv7 prefix
+gli show <id> [--json]         # id = number (e.g. 1), alice-1, OR uuidv7 prefix
 gli comment <id> ["text"]      # no text opens $EDITOR ($VISUAL, then vi)
 gli edit <id> [--title ...] [--desc ...] [--add-label ...] [--remove-label ...] [-a ...] [--add-assignee ...] [--remove-assignee ...]
 gli field set|get|rm|list <id> [key] [value]   # optional free-form key/value metadata
@@ -69,8 +69,9 @@ stable machine-readable schema.
 `create` and `ls` fall back to the `gli config` defaults when the matching flag
 is absent; an explicit flag always wins.
 
-`<id>` resolution accepts an actor-nonce (for example `alice-4`) or a UUIDv7
-prefix (for example `018f2a1c`). Prefixes expand unambiguously, and `gli`
+`<id>` resolution accepts a display number (for example `1`, shown as `#1`), an
+actor-qualified `alice-1` (used when a number is shared across actors), or a
+UUIDv7 prefix (for example `018f2a1c`). Prefixes expand unambiguously, and `gli`
 prompts on ambiguity.
 
 ## Design
@@ -115,9 +116,11 @@ multi-valued core field all three platforms share.
 
 Identity has two layers. The **truth** is a **UUIDv7** per issue: the ref is
 `refs/issues/<uuidv7>`, which never collides and is time-sortable. The
-**display** identity is an **actor-scoped nonce** (`alice-1`, `bob-1`, and so
-on), namespaced per actor so cross-actor numbers never clash. A short UUIDv7
-prefix is always available as a permanent handle. Display numbers are
+**display** identity is a **number**, shown as a bare `#1` while it is
+unambiguous and as the actor-qualified `alice-#1` only once two actors share a
+number (namespaced per actor so cross-actor numbers never clash). Type the bare
+number (`gli show 1`), since a shell treats a leading `#` as a comment. A short
+UUIDv7 prefix is always available as a permanent handle. Display numbers are
 drift-allowed: they are a convenience, not a permanent handle, and a friendly
 number may change after a sync. `gli status` surfaces any renumbering as an
 informational notice.

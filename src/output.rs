@@ -12,7 +12,12 @@ use serde::Serialize;
 pub struct IssueJson {
     /// Full UUIDv7 (truth id).
     pub uuid: String,
-    /// Actor-scoped display nonce (may drift; not a permanent handle).
+    /// Display handle: `#N`, or `alice-#N` when a number is shared across actors
+    /// (may drift; not a permanent handle).
+    pub handle: String,
+    /// Per-actor display number (the `N` in the handle; may drift).
+    pub number: usize,
+    /// Actor-scoped nonce, e.g. `alice-1` (the typeable actor-qualified form).
     pub nonce: String,
     /// Short uuid prefix (a permanent handle).
     pub short: String,
@@ -60,6 +65,8 @@ pub fn issue_json(cache: &Cache, issue: &Issue) -> IssueJson {
     let st = issue.state();
     IssueJson {
         uuid: issue.uuid.clone(),
+        handle: d.handle,
+        number: d.number,
         nonce: d.nonce,
         short: d.short,
         title: issue.title().to_string(),

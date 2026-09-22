@@ -61,6 +61,9 @@ impl Cache {
         self.display.get(uuid).cloned().unwrap_or(DisplayId {
             uuid: uuid.to_string(),
             nonce: id::short_prefix(uuid),
+            actor: String::new(),
+            number: 0,
+            handle: id::short_prefix(uuid),
             short: id::short_prefix(uuid),
         })
     }
@@ -78,8 +81,10 @@ impl Cache {
                 let candidates = candidates
                     .iter()
                     .map(|u| {
-                        let nonce = self.display_of(u).nonce;
-                        format!("{nonce} ({})", u.chars().take(16).collect::<String>())
+                        let d = self.display_of(u);
+                        // Show the actor-qualified nonce plus a prefix long enough
+                        // to actually distinguish same-millisecond UUIDv7s.
+                        format!("{} ({})", d.nonce, u.chars().take(16).collect::<String>())
                     })
                     .collect::<Vec<_>>();
                 Err(GliError::AmbiguousId {

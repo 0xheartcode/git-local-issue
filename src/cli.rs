@@ -19,8 +19,9 @@ use clap::{CommandFactory, Parser, Subcommand};
     long_about = "git-local-issue (gli) stores issues natively in Git under refs/issues/*: no \
 external database, no server. Issues are distributed and offline-first, and sync by ordinary \
 `git push` and `git fetch` (sync itself arrives in v2; this build is the local core).\n\n\
-An <ID> is either an actor-scoped nonce like `alice-3` or a UUIDv7 prefix like `018f2a1c`. \
-Nonces are recomputed on read and may drift; the UUIDv7 (prefix) is the permanent handle.",
+An <ID> is a display number like `1` (shown as `#1`), an actor-qualified `alice-1` when a number \
+is shared across actors, or a UUIDv7 prefix like `018f2a1c`. Numbers are recomputed on read and \
+may drift; the UUIDv7 (prefix) is the permanent handle.",
     // Print the version in the help header too (git-bug #1535).
     help_template = "\
 {name} {version}
@@ -44,9 +45,10 @@ struct Cli {
 }
 
 /// Shared explanation of the <ID> argument, used on every command that takes one.
-const ID_HELP: &str = "Issue id: an actor-scoped nonce (e.g. `alice-3`, case-insensitive) or a \
-UUIDv7 prefix (e.g. `018f2a1c`). Prefixes are expanded automatically; an ambiguous prefix lists \
-the candidates so you can retype a longer one.";
+const ID_HELP: &str = "Issue id: a display number like `1` (shown as `#1`; type the bare number \
+since a shell eats a leading `#`), an actor-qualified `alice-1` when several actors share a number, \
+or a UUIDv7 prefix (e.g. `018f2a1c`). Prefixes expand automatically; an ambiguous one lists the \
+candidates. Numbers may drift after a sync; the UUIDv7 is the permanent handle.";
 
 #[derive(Subcommand)]
 enum Command {
@@ -643,7 +645,7 @@ fn cmd_create(
     )?;
     let cache = Cache::build(&backend)?;
     let display = cache.display_of(&uuid);
-    println!("Created issue {} ({})", display.nonce, display.short);
+    println!("Created issue {} ({})", display.handle, display.short);
     Ok(0)
 }
 
@@ -742,7 +744,7 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
         if format == "full" {
             println!(
                 "{} ({})  [{}]{}  {}",
-                d.nonce,
+                d.handle,
                 d.short,
                 mark,
                 arch,
@@ -789,7 +791,7 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
             };
             println!(
                 "{:<12} {:<8} {:<7} {}{}{}",
-                d.nonce,
+                d.handle,
                 d.short,
                 mark,
                 issue.title(),
@@ -844,7 +846,7 @@ fn cmd_show(id: String, ops: bool, json: bool) -> Result<i32> {
             .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
         println!(
             "{}  ({})  operation log ({} ops):",
-            d.nonce,
+            d.handle,
             uuid,
             log.len()
         );
@@ -866,7 +868,7 @@ fn cmd_show(id: String, ops: bool, json: bool) -> Result<i32> {
         .issue(&uuid)
         .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
 
-    println!("{}  ({})", d.nonce, uuid);
+    println!("{}  ({})", d.handle, uuid);
     println!("Title:    {}", issue.title());
     let st = issue.state();
     print!("State:    {}", st.state.as_str());
@@ -944,7 +946,7 @@ fn cmd_comment(id: String, text: Option<String>) -> Result<i32> {
 
     let store = Store::new(&backend);
     store.append(&uuid, OpKind::Comment { text })?;
-    println!("Added comment to {}", cache.display_of(&uuid).nonce);
+    println!("Added comment to {}", cache.display_of(&uuid).handle);
     Ok(0)
 }
 
@@ -984,7 +986,7 @@ fn cmd_comment_edit(id: String, number: usize, text: Option<String>) -> Result<i
     store.append(&uuid, OpKind::EditComment { target, text })?;
     println!(
         "Edited comment #{number} on {}",
-        cache.display_of(&uuid).nonce
+        cache.display_of(&uuid).handle
     );
     Ok(0)
 }
@@ -1002,7 +1004,7 @@ fn cmd_comment_rm(id: String, number: usize) -> Result<i32> {
     store.append(&uuid, OpKind::HideComment { target })?;
     println!(
         "Deleted comment #{number} on {} (soft: the text stays in history).",
-        cache.display_of(&uuid).nonce
+        cache.display_of(&uuid).handle
     );
     Ok(0)
 }
@@ -1015,7 +1017,7 @@ fn cmd_comment_purge(id: String, number: usize) -> Result<i32> {
         .issue(&uuid)
         .ok_or_else(|| GliError::UnknownIssue(id.clone()))?;
     let target = comment_target(issue, number)?;
-    let nonce = cache.display_of(&uuid).nonce;
+    let nonce = cache.display_of(&uuid).handle;
 
     let store = Store::new(&backend);
     let removed = store.purge_comment(&uuid, &target)?;
@@ -1092,7 +1094,7 @@ fn cmd_edit(args: EditArgs) -> Result<i32> {
     let cache = Cache::build(&backend)?;
     let uuid = cache.resolve(&id)?;
     let store = Store::new(&backend);
-    let nonce = cache.display_of(&uuid).nonce;
+    let nonce = cache.display_of(&uuid).handle;
 
     // Each field is its own durable operation (operation-sourcing). We apply
     // them in a fixed order and report each as it lands, so if one fails the
@@ -1222,7 +1224,7 @@ fn cmd_state(
     let _ = StateVal::default(); // keep StateVal in scope for future summaries
     println!(
         "Set {} to {}",
-        cache.display_of(&uuid).nonce,
+        cache.display_of(&uuid).handle,
         target.as_str()
     );
     Ok(0)
@@ -1232,7 +1234,7 @@ fn cmd_archive(id: String, purge: bool) -> Result<i32> {
     let backend = backend()?;
     let cache = Cache::build(&backend)?;
     let uuid = cache.resolve(&id)?;
-    let nonce = cache.display_of(&uuid).nonce;
+    let nonce = cache.display_of(&uuid).handle;
 
     if purge {
         // Irreversible: delete the ref outright. Nothing else references it.
@@ -1253,7 +1255,7 @@ fn cmd_restore(id: String) -> Result<i32> {
     let uuid = cache.resolve(&id)?;
     let store = Store::new(&backend);
     store.append(&uuid, OpKind::SetArchived { archived: false })?;
-    println!("Restored {}.", cache.display_of(&uuid).nonce);
+    println!("Restored {}.", cache.display_of(&uuid).handle);
     Ok(0)
 }
 
@@ -1348,7 +1350,7 @@ fn cmd_status() -> Result<i32> {
             for issue in unpushed {
                 println!(
                     "  {}  {}",
-                    cache.display_of(&issue.uuid).nonce,
+                    cache.display_of(&issue.uuid).handle,
                     issue.title()
                 );
             }
@@ -1460,7 +1462,7 @@ fn cmd_field(action: FieldAction) -> Result<i32> {
                     value: value.clone(),
                 },
             )?;
-            println!("Set {key} = {value} on {}", cache.display_of(&uuid).nonce);
+            println!("Set {key} = {value} on {}", cache.display_of(&uuid).handle);
         }
         FieldAction::Get { id, key } => {
             let uuid = cache.resolve(&id)?;
@@ -1481,7 +1483,10 @@ fn cmd_field(action: FieldAction) -> Result<i32> {
                     value: String::new(),
                 },
             )?;
-            println!("Removed field {key} from {}", cache.display_of(&uuid).nonce);
+            println!(
+                "Removed field {key} from {}",
+                cache.display_of(&uuid).handle
+            );
         }
         FieldAction::List { id } => {
             let uuid = cache.resolve(&id)?;
@@ -1515,7 +1520,7 @@ fn cmd_file(action: FileAction) -> Result<i32> {
                     note: note.unwrap_or_default(),
                 },
             )?;
-            println!("Attached {path} to {}", cache.display_of(&uuid).nonce);
+            println!("Attached {path} to {}", cache.display_of(&uuid).handle);
         }
         FileAction::Note { id, path, note } => {
             let uuid = cache.resolve(&id)?;
@@ -1531,7 +1536,7 @@ fn cmd_file(action: FileAction) -> Result<i32> {
         FileAction::Rm { id, path } => {
             let uuid = cache.resolve(&id)?;
             store.append(&uuid, OpKind::RemoveFile { path: path.clone() })?;
-            println!("Detached {path} from {}", cache.display_of(&uuid).nonce);
+            println!("Detached {path} from {}", cache.display_of(&uuid).handle);
         }
         FileAction::List { id } => {
             let uuid = cache.resolve(&id)?;

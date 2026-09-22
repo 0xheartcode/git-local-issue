@@ -30,25 +30,25 @@ the second is a plain one-liner:
 ```
 $ gli create "Login button does nothing" -l bug -l frontend -p high \
     -d "Clicking Login on /signin has no effect. No network request fires."
-Created alice-1 (0190f2a1) Login button does nothing
+Created #1 (0190f2a1) Login button does nothing
 
 $ gli create "Add dark mode toggle"
-Created alice-2 (0190f2b3) Add dark mode toggle
+Created #2 (0190f2b3) Add dark mode toggle
 ```
 
 List what you have:
 
 ```
 $ gli ls
-alice-1  0190f2a1  open  high    Login button does nothing   [bug, frontend]
-alice-2  0190f2b3  open  -       Add dark mode toggle
+#2  0190f2b3  open  -       Add dark mode toggle
+#1  0190f2a1  open  high    Login button does nothing   [bug, frontend]
 ```
 
 Show a single issue and its history:
 
 ```
-$ gli show alice-1
-alice-1  (0190f2a1-...)  Login button does nothing
+$ gli show 1
+#1  (0190f2a1-...)  Login button does nothing
 state:     open
 priority:  high
 labels:    bug, frontend
@@ -112,18 +112,20 @@ Every issue has two ways to refer to it:
 
 - The truth id is a UUIDv7. The Git ref is `refs/issues/<uuid>`. You will usually
   see it as a short prefix like `0190f2a1`.
-- The display id is an actor-scoped number like `alice-1` or `bob-1`. These are
-  friendly handles derived from who created the issue and in what order.
+- The display id is a number, shown as `#1`, `#2`, and so on. Type the bare
+  number (`gli show 1`), since a shell treats a leading `#` as a comment. Once
+  two actors share a number (after a sync), the handle qualifies with the actor,
+  e.g. `alice-#1` versus `bob-#1`, and you disambiguate by typing `alice-1`.
 
 A few things worth knowing:
 
-- Ids are case-insensitive. `ALICE-1` and `alice-1` refer to the same issue, and
-  a uuid prefix can be typed in any case.
-- If a prefix is ambiguous (it matches more than one issue), `gli` will not guess.
-  It lists the candidates so you can retype a longer, unambiguous prefix.
-- Display numbers are drift-allowed. Because they are scoped per actor, the same
-  underlying issue can show a different display number on a different machine.
-  The UUIDv7 is always the stable, authoritative id.
+- Ids are case-insensitive, and `alice-1` (or the shown `alice-#1`) resolves the
+  same issue; a uuid prefix can be typed in any case.
+- If a bare number or prefix is ambiguous (it matches more than one issue), `gli`
+  will not guess. It lists the candidates so you can retype an unambiguous one.
+- Display numbers are drift-allowed. The same underlying issue can show a
+  different number on a different machine or after a sync. The UUIDv7 is always
+  the stable, authoritative id, so durable references should use it.
 
 You can pass either form to any command that takes an `<id>`:
 
