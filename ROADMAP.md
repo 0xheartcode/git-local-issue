@@ -50,9 +50,20 @@ release a real release, or is expensive to change after the format goes live.
 ### Docs
 - [x] **E26. `USAGE.md`** (S). A hands-on zero-to-productive tutorial.
 
+### Release hardening (done)
+- [x] **Crate metadata** (S). Package renamed to `git-local-issue` (binary and
+  library stay `gli`); added rust-version/MSRV, homepage, authors, readme,
+  keywords, categories to the crates.io/panekit bar.
+- [x] **`make package`** (S). `cargo publish --dry-run --locked` gate in the
+  Makefile and CI; dry-run is green.
+- [x] **CHANGELOG one-line reflow** (S). Entries kept to one line so cargo-dist's
+  injection into the GitHub Release body renders without ragged breaks.
+
 ### Going live (outward-facing, needs explicit go-ahead)
-- [ ] **F5 / E24 / E25. Publish** (S). Create the GitHub repo, push, tag
-  `v0.1.0`, cut the release with binaries. Held until you say go.
+- [~] **F5 / E24 / E25. Publish** (S). Code is pushed to a **private** GitHub repo
+  (`0xheartcode/git-local-issue`). Still held until you say go: tag `v0.1.0` (which
+  triggers the cargo-dist binary release), make the repo public, and — if wanted —
+  wire and run the crates.io publish (net-new; the dry-run confirms it packages).
 
 ---
 
@@ -100,6 +111,19 @@ semantics, so `Format-Version` stays at 1.
   usable issues (empty chain, unparseable, or will not fold) by moving them to
   `refs/gli-quarantine/*`. Non-destructive (commits preserved) and recovers a
   repo that one bad ref had bricked.
+- [x] **Edit priority after creation** (S). (done) `gli edit -p/--priority <val>`
+  (empty clears); the `SetPriority` op was previously only reachable at `create`.
+  Found by dogfooding.
+- [x] **Comment edit and delete** (M). (done) `gli comment edit <id> <n> [text]`
+  (append-only `edit-comment`, LWW per comment, marks "(edited)"), `gli comment rm`
+  (soft `hide-comment` tombstone -> "[deleted]", text retained, sync-safe), and
+  `gli comment purge` (hard delete via chain rewrite: irreversible, not sync-safe,
+  a leaked-secret escape hatch that prints the `git gc` prune command). `gli
+  comment <id> [text]` add form unchanged.
+- [x] **`#N` display numbers** (S). (done) Issues show as `#1`, `#2`; a number
+  qualifies to `alice-#1` only when several actors share it (after a sync).
+  Resolution accepts the bare number, the `alice-1` alias, and uuid prefixes; the
+  uuid stays the permanent id.
 
 ---
 
@@ -147,11 +171,26 @@ semantics, so `Format-Version` stays at 1.
 - [ ] **C18. Attachments** (L). Inline blobs (size-guarded) and URL refs; the
   format already permits non-empty trees. Leave the git-LFS pointer seam open.
 - [ ] **E27. Issue relations** (M). `blocks` / `relates-to` / `duplicate-of` as
-  `relate`/`unrelate` operations. Reserve the design at 0.1.0, build here.
+  `relate`/`unrelate` operations on the chain. Reserve the design at 0.1.0, build
+  here. (The "comment as its own issue" idea reduces to this plus the item below.)
+- [ ] **E28. Promote a comment to an issue** (S). Create a new issue whose body is
+  the comment's text and add a `relates-to` back to the original. The genuinely
+  useful special case of "a comment can be an issue," without making every comment
+  its own ref. Depends on E27.
+- [ ] **E29. `Reply-To` comment threading** (S). Optional `Reply-To: <op-id>`
+  trailer on a comment so replies nest, without promoting comments to separate
+  refs. Comments already carry a stable op-id, so this is additive.
+- [ ] **C18b. Content-addressed comment bodies** (M). Store a comment's text as a
+  git blob referenced by hash from the op, so the bytes can be erased (drop the
+  blob) without rewriting the chain — the clean, structure-preserving path to hard
+  deletion, riding the attachments seam. The alternative to today's chain-rewrite
+  `comment purge`. Only worth building if guaranteed byte-erasure becomes a real
+  requirement (crypto-shredding is the even-stronger variant).
 - [ ] **D22. Commit signing** (M). GPG/SSH signatures for verifiable authorship,
   closing the "authorship is forgeable" gap. Seam left from day one.
 - [ ] **Reactions, stable (non-drifting) numbers, git-LFS** (M). Optional
-  quality-of-life items if wanted.
+  quality-of-life items if wanted. (Display is now `#N`; truly stable, never-drift
+  numbers would still need a coordination point and are deferred here.)
 
 ---
 
