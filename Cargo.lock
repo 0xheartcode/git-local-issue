@@ -193,7 +193,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gli"
+name = "git-local-issue"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -64,7 +64,10 @@ fn edit_changes_and_clears_priority() {
     assert!(ok && out.contains("clear priority"), "got: {out}");
     let (json, _) = gli(dir, &["show", "alice-1", "--json"]);
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert!(v["priority"].is_null(), "priority should be cleared: {json}");
+    assert!(
+        v["priority"].is_null(),
+        "priority should be cleared: {json}"
+    );
 }
 
 #[test]

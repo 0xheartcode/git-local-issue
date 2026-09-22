@@ -2,10 +2,9 @@
 
 A distributed, offline-first issue tracker that stores issues natively in Git.
 
-> **Forked from / inspired by [git-native-issue](https://github.com/) (GPL-v2).**
-> `git-local-issue` is a from-scratch Rust rewrite with its own on-disk format.
-> Credit and thanks to the original `git-native-issue` project, whose design and
-> hard-won lessons made this fork possible.
+> **Inspired by [git-native-issue](https://github.com/remenoscodes/git-native-issue) (GPL-v2).**
+> `git-local-issue` is a from-scratch Rust project with its own on-disk format.
+> Thank you to everyone who is frustrated with git issues not being a native feature.
 
 ## What it is
 
@@ -143,5 +142,4 @@ git bundle create issues.bundle --glob='refs/issues/*'
 
 ## License
 
-GPL-v2. See [LICENSE](LICENSE). This fork keeps the original license and
-copyright notices from `git-native-issue`.
+GPL-v2. See [LICENSE](LICENSE). 

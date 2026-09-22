@@ -1,10 +1,21 @@
 [package]
-name = "gli"
+name = "git-local-issue"
 version = "0.1.0"
 edition = "2024"
-description = "git-local-issue: distributed, offline-first issue tracker stored natively in Git"
+rust-version = "1.85"
+description = "Distributed, offline-first issue tracker stored natively in Git (the `gli` command)."
 license = "GPL-2.0-only"
 repository = "https://github.com/0xheartcode/git-local-issue"
+homepage = "https://github.com/0xheartcode/git-local-issue"
+authors = ["0xheartcode"]
+readme = "README.md"
+keywords = ["issue-tracker", "git", "cli", "offline-first", "distributed"]
+categories = ["command-line-utilities", "development-tools"]
+
+# The package is `git-local-issue`; the installed command is `gli`.
+[lib]
+name = "gli"
+path = "src/lib.rs"
 
 [[bin]]
 name = "gli"

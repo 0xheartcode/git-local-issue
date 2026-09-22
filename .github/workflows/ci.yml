@@ -29,3 +29,6 @@ jobs:
 
       - name: Coverage (reported, not gated)
         run: make coverage
+
+      - name: Packaging dry-run (cargo publish --dry-run)
+        run: make package

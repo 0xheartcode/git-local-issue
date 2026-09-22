@@ -205,7 +205,12 @@ mod tests {
             .is_err()
         );
         assert!(validate_op(&OpKind::Comment { text: over_limit() }).is_err());
-        assert!(validate_op(&OpKind::SetTitle { title: over_limit() }).is_err());
+        assert!(
+            validate_op(&OpKind::SetTitle {
+                title: over_limit()
+            })
+            .is_err()
+        );
         assert!(
             validate_op(&OpKind::SetDescription {
                 description: over_limit()
@@ -242,7 +247,12 @@ mod tests {
         // which this multi-kilobyte "ok" case would then wrongly reject).
         assert!(check_size("t", &"x".repeat(MAX_FIELD_BYTES)).is_ok());
         assert!(check_size("t", &"x".repeat(MAX_FIELD_BYTES + 1)).is_err());
-        assert!(validate_op(&OpKind::SetTitle { title: "x".repeat(4096) }).is_ok());
+        assert!(
+            validate_op(&OpKind::SetTitle {
+                title: "x".repeat(4096)
+            })
+            .is_ok()
+        );
     }
 
     // --- Mock-backend tests for author derivation and append's retry loop. ---
@@ -285,7 +295,12 @@ mod tests {
         fn read_chain(&self, _tip: &str) -> Result<Vec<RawCommit>> {
             Ok(Vec::new())
         }
-        fn commit_op(&self, _parent: Option<&str>, _message: &str, _author: &Author) -> Result<String> {
+        fn commit_op(
+            &self,
+            _parent: Option<&str>,
+            _message: &str,
+            _author: &Author,
+        ) -> Result<String> {
             Ok("newcommit".into())
         }
         fn update_ref(&self, _refname: &str, _new: &str, _old: Option<&str>) -> Result<()> {

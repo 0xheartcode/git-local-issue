@@ -1,5 +1,5 @@
 # Deterministic quality gate for gli. `make check` must be green before commit.
-.PHONY: check fmt fmt-check lint test coverage build clean
+.PHONY: check fmt fmt-check lint test coverage build package clean
 
 check: fmt-check lint test
 
@@ -21,6 +21,11 @@ coverage:
 
 build:
 	cargo build --release
+
+# Packaging gate: verify the crate builds as a publishable package (catches
+# missing files, path-only deps, and metadata errors) without publishing.
+package:
+	cargo publish --dry-run --locked
 
 clean:
 	cargo clean
