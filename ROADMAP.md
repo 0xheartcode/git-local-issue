@@ -41,61 +41,61 @@ Nothing touches the network or the on-disk format. The packed, front-loaded
 release. Additive and backward compatible.
 
 ### Walls and repo hygiene
-- [ ] **A. Gate the coverage floor** (S) `[pk]`. A `COV_FLOOR` ratchet via
+- [x] **A. Gate the coverage floor** (S) `[pk]`. A `COV_FLOOR` ratchet via
   `cargo llvm-cov --fail-under-lines` in the Makefile and CI, so coverage is a
   wall, not a report. Ratchet up as slices land; never down to pass.
-- [ ] **B. `cov-html` + Makefile philosophy header** (S) `[pk]`. A browsable HTML
+- [x] **B. `cov-html` + Makefile philosophy header** (S) `[pk]`. A browsable HTML
   coverage target and the "we encode best practices as deterministic checks" note.
   Mirror panekit's wall ergonomics too: a `── <name> ──` echo per sub-wall and a
   closing `═══ make check: ALL WALLS GREEN ═══` banner, and record the `COV_FLOOR`
   ratchet history as a dated in-file comment ("never lower to pass").
-- [ ] **C. Harden the core test suite** (M) `[qa]`. Add targeted tests on the core
+- [x] **C. Harden the core test suite** (M) `[qa]`. Add targeted tests on the core
   modules (`model`/`id`/`store`/`trailer`/`git`) so a regression in core logic
   fails a test, then ratchet `COV_FLOOR` up once they land.
-- [ ] **D. CHANGELOG conventions** (S) `[pk]`. Per-release theme lines, the
+- [x] **D. CHANGELOG conventions** (S) `[pk]`. Per-release theme lines, the
   "additive and backward compatible" note, compare-link footers for each version,
   and the pre-1.0 all-patch scheme documented in the header.
-- [ ] **E. `docs/design/`** (S) `[pk]`. A design-doc folder, one doc per
+- [x] **E. `docs/design/`** (S) `[pk]`. A design-doc folder, one doc per
   non-trivial feature, referenced from the CHANGELOG, seeded with
   `display-numbers.md`. Use panekit's ADR template: a `# Title`, a bare
   `Status: accepted (<version>)` line, an optional "Builds on `<doc>.md`", an
   opening `## Context`, body sections, and a closing `## Deferred (not in X)` that
   scopes what was intentionally left out.
-- [ ] **F. `rust-toolchain.toml`** (S) `[pk]`. Pin the toolchain (today only the
+- [x] **F. `rust-toolchain.toml`** (S) `[pk]`. Pin the toolchain (today only the
   MSRV lives in `Cargo.toml`): `channel = "stable"`, `components = ["rustfmt","clippy"]`.
-- [ ] **AE. `#![deny(missing_docs)]` wall** (S) `[pk]`. Add the inner attribute to
+- [x] **AE. `#![deny(missing_docs)]` wall** (S) `[pk]`. Add the inner attribute to
   the lib root and document every public item, so the docs.rs page is complete and
   an undocumented export fails the build. panekit enforces this on both crate roots;
   gli does not yet. A real wall, not just polish.
-- [ ] **AF. `docs/ARCHITECTURE.md` as a numbered ADR** (S) `[pk]`. Formalize the
+- [x] **AF. `docs/ARCHITECTURE.md` as a numbered ADR** (S) `[pk]`. Formalize the
   signature decision (issues as immutable op-commit chains under `refs/issues/*`,
   state = the CRDT fold) in panekit's ADR shape: `# ADR-001: …`, `Status:` line,
   `## Context` → `## Decision` → `## Why not …` (rejected alternatives) →
   `## Consequences` → `## Shipped since v0.1`. Today this reasoning is scattered
   across `FORMAT.md`, the README, and the external PLAN doc.
-- [ ] **AG. Reshape `README.md` to panekit's layout** (S) `[pk]`. Install-first,
+- [x] **AG. Reshape `README.md` to panekit's layout** (S) `[pk]`. Install-first,
   a "Why this exists" narrative, runnable annotated command blocks, no badge row —
   panekit's section order. Keep gli's content; restructure the frame.
 
 ### Internal refactor (behaviour unchanged)
-- [ ] **G. Extract the `ls` query** (M) `[qa]`. Lift filter/search/sort out of
+- [x] **G. Extract the `ls` query** (M) `[qa]`. Lift filter/search/sort out of
   `cmd_ls` into a testable `query` module. Kills the one real interface-depth
   finding (the 1560-line `cli.rs` god-file, `cmd_ls` = 136 regions @ 54% cover)
   and makes the logic unit-testable.
-- [ ] **H. Extract display/handle rendering** (S/M) `[qa]`. Move handle rendering
+- [x] **H. Extract display/handle rendering** (S/M) `[qa]`. Move handle rendering
   out of `cli.rs` into `id` (or a small render unit) and unit-test it. Prereq for I.
 
 ### Display numbering (display-only; Format-Version stays 1)
-- [ ] **I. Project-prefixed display numbers** (S) `[ux]`. `gli config set
+- [x] **I. Project-prefixed display numbers** (S) `[ux]`. `gli config set
   display-prefix <name>` shows handles as `myproject-#1`. Default stays bare `#N`;
   the **actor** only ever surfaces on a true post-sync collision (`alice-#1` vs
   `bob-#1`). Solo users never see their name. Per-actor numbering stays the
   coordination-free truth underneath.
-- [ ] **J. Auto-derive the prefix** (S) `[ux]`. Fall the prefix back to the repo's
+- [x] **J. Auto-derive the prefix** (S) `[ux]`. Fall the prefix back to the repo's
   directory basename / remote name, so it works with zero config.
 
 ### Forward-compat safety net
-- [ ] **AD. `gli migrate`** (S) `[new]`. Reserve the upgrade-on-install command now,
+- [x] **AD. `gli migrate`** (S) `[new]`. Reserve the upgrade-on-install command now,
   while it is cheap. At `Format-Version 1` it is a deliberate no-op that reads the
   version and reports "nothing to migrate", so the UX contract ("run `gli migrate`
   after upgrading") exists from the start. It is the single home for (a) the day a
