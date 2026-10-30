@@ -18,7 +18,7 @@ Theme: project-prefixed display numbers, a format-migration command, and the qua
 
 ### Added
 
-- **Project-prefixed display numbers**: `gli config set display-prefix <name>` (or `auto` to derive a slug from the repository) shows handles as `myproject-#1` instead of a bare `#1`, so a reference carries the project and a solo tracker never shows an actor name. Off by default; the actor-qualified form still appears only when two actors share a number after a sync, and resolution accepts the prefixed handle. See docs/design/display-numbers.md.
+- **Project-prefixed display numbers**: `gli config set display-prefix <name>` (or `auto` to derive a slug from the repository) shows handles as `myproject-#1` instead of a bare `#1`, so a reference carries the project and a solo tracker never shows an actor name. Off by default; the actor-qualified form still appears only when two actors share a number after a sync, and resolution accepts the prefixed handle. `gli init` prints a tip pointing at it. See docs/design/display-numbers.md.
 - **`gli migrate`**: reports the on-disk format version of the tracked issues and exits. At the current version there is nothing to migrate; it reserves the upgrade seam and is the command to run after upgrading gli.
 - **Architecture and design docs**: docs/ARCHITECTURE.md records the core design as an ADR, and docs/design/ holds per-feature design notes.
 

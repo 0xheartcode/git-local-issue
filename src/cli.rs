@@ -612,6 +612,9 @@ fn cmd_init() -> Result<i32> {
     println!("Initialized gli issue tracking in {}", root.display());
     println!("Issues live under refs/issues/*. Back them up with:");
     println!("  git bundle create issues.bundle --glob='refs/issues/*'");
+    println!(
+        "Tip: issues show as #1, #2. For project-prefixed handles like myproject-#1,\n     run `gli config set display-prefix auto` (or a name of your choosing)."
+    );
     Ok(0)
 }
 

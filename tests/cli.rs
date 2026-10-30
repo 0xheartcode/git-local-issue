@@ -472,6 +472,30 @@ fn purge_preserves_other_comments_edits() {
 }
 
 #[test]
+fn init_hints_at_display_prefix_and_default_is_bare() {
+    let repo = TempDir::new().unwrap();
+    let dir = repo.path();
+    git(dir, &["init", "-q"]);
+    git(dir, &["config", "user.name", "Alice"]);
+    git(dir, &["config", "user.email", "alice@example.com"]);
+
+    let (out, ok) = gli(dir, &["init"]);
+    assert!(ok);
+    assert!(
+        out.contains("display-prefix"),
+        "init should hint at the prefix: {out}"
+    );
+
+    // The default stays bare: a fresh issue shows #1, not a prefixed handle.
+    gli(dir, &["create", "First"]);
+    let (ls, _) = gli(dir, &["ls"]);
+    assert!(
+        ls.contains("#1") && !ls.contains("-#1"),
+        "default must be bare: {ls}"
+    );
+}
+
+#[test]
 fn migrate_is_a_noop_at_the_current_format_version() {
     let repo = new_repo();
     let dir = repo.path();
