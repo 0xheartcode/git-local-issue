@@ -5,10 +5,12 @@
 //!   * [`git`]    - the one `GitBackend` seam for all git access
 //!   * [`model`]  - operations, trailers, Lamport clocks, and the CRDT fold
 //!   * [`id`]     - UUIDv7 truth ids and drift-allowed display numbers
+//!   * [`query`]  - the `ls` filter and sort, applied to a set of issues
 //!   * [`store`]  - write operations (turning intents into op commits)
 //!   * [`cache`]  - the disposable, rebuildable in-memory query cache
 //!   * [`fsck`]   - integrity checks
 //!   * [`cli`]    - the command surface
+#![deny(missing_docs)]
 
 pub mod cache;
 pub mod cli;
@@ -18,5 +20,6 @@ pub mod git;
 pub mod id;
 pub mod model;
 pub mod output;
+pub mod query;
 pub mod store;
 pub mod trailer;

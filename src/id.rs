@@ -4,8 +4,10 @@
 //! `refs/issues/<uuid>` and a short prefix is a permanent handle. Display
 //! identity is a number computed on read, shown as a bare `#N` while that
 //! number is unambiguous and as the actor-qualified `alice-#N` only once two
-//! actors share a number (after a sync). A same-actor clash (two offline
-//! clones) resolves deterministically by UUIDv7 order. Display numbers may
+//! actors share a number (after a sync). An optional project prefix
+//! (`gli.default.display-prefix`) shows the unambiguous form as `myproject-#N` instead
+//! of a bare `#N`; the collision form is unchanged. A same-actor clash (two
+//! offline clones) resolves deterministically by UUIDv7 order. Display numbers may
 //! drift after a sync; they are convenience, not permanent handles (the uuid is).
 
 use crate::model::Issue;
@@ -44,6 +46,7 @@ pub fn actor_slug(raw: &str) -> String {
 /// A resolved display handle for one issue.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DisplayId {
+    /// The issue's truth id (its permanent uuid).
     pub uuid: String,
     /// Actor-scoped nonce, e.g. `alice-3`. The typeable actor-qualified form.
     pub nonce: String,
@@ -65,10 +68,11 @@ pub struct DisplayId {
 /// numbered 1..N. This is the deterministic collision resolution: if an actor
 /// minted the same number from two offline clones, the earlier UUIDv7 keeps the
 /// lower number and the later drifts to the next slot. The shown handle is a
-/// bare `#N` while that number is globally unique, and only becomes the
-/// actor-qualified `alice-#N` once two actors share a number. Numbers may drift
-/// after a sync; they are convenience, not permanent handles (the uuid is).
-pub fn assign_display_ids(issues: &[Issue]) -> HashMap<String, DisplayId> {
+/// bare `#N` (or `prefix-#N` when `prefix` is set) while that number is globally
+/// unique, and becomes the actor-qualified `alice-#N` once two actors share a
+/// number. Numbers may drift after a sync; they are convenience, not permanent
+/// handles (the uuid is).
+pub fn assign_display_ids(issues: &[Issue], prefix: Option<&str>) -> HashMap<String, DisplayId> {
     let mut by_actor: HashMap<String, Vec<&Issue>> = HashMap::new();
     for issue in issues {
         by_actor
@@ -98,7 +102,13 @@ pub fn assign_display_ids(issues: &[Issue]) -> HashMap<String, DisplayId> {
     let mut out = HashMap::new();
     for (uuid, actor, number) in assigned {
         let handle = if number_counts.get(&number).copied().unwrap_or(0) > 1 {
+            // Collision: two actors share this number (only possible after a
+            // sync). The actor is the only thing that disambiguates within a
+            // repo, so qualify with it (a prefix would not distinguish them).
             format!("{actor}-#{number}")
+        } else if let Some(p) = prefix {
+            // Unambiguous number with a project prefix set: scope it to the project.
+            format!("{p}-#{number}")
         } else {
             format!("#{number}")
         };
@@ -167,6 +177,14 @@ pub fn resolve(query: &str, display: &HashMap<String, DisplayId>) -> Resolution 
         }
     }
 
+    // 2b. Exact displayed-handle match (e.g. a prefixed `myproject-#1`); the `#`
+    //     is optional. Covers any handle form not already caught above.
+    for d in display.values() {
+        if d.handle.to_ascii_lowercase().replace("-#", "-") == nonce_query {
+            return Resolution::Unique(d.uuid.clone());
+        }
+    }
+
     // 3. Exact full-uuid match.
     if display.contains_key(&ql) {
         return Resolution::Unique(ql);
@@ -229,7 +247,7 @@ mod tests {
             issue_with("018f0000000000000000000000000001", "alice"),
             issue_with("018f0000000000000000000000000009", "bob"),
         ];
-        let d = assign_display_ids(&issues);
+        let d = assign_display_ids(&issues, None);
         // alice's earlier uuid (...0001) keeps -1; the later (...0002) is -2.
         assert_eq!(d["018f0000000000000000000000000001"].nonce, "alice-1");
         assert_eq!(d["018f0000000000000000000000000002"].nonce, "alice-2");
@@ -250,7 +268,7 @@ mod tests {
             issue_with("018f0000000000000000000000000010", "alice"),
             issue_with("018f0000000000000000000000000011", "alice"),
         ];
-        let d = assign_display_ids(&issues);
+        let d = assign_display_ids(&issues, None);
         assert_eq!(d["018f0000000000000000000000000010"].handle, "#1");
         assert_eq!(d["018f0000000000000000000000000011"].handle, "#2");
         // Bare number resolves; so does the #-prefixed form.
@@ -270,7 +288,7 @@ mod tests {
             issue_with("018f0000000000000000000000000001", "alice"),
             issue_with("018f0000000000000000000000000002", "bob"),
         ];
-        let d = assign_display_ids(&issues);
+        let d = assign_display_ids(&issues, None);
         assert_eq!(d["018f0000000000000000000000000001"].handle, "alice-#1");
         assert_eq!(d["018f0000000000000000000000000002"].handle, "bob-#1");
         match resolve("1", &d) {
@@ -292,7 +310,7 @@ mod tests {
             issue_with("018f0000000000000000000000000001", "alice"),
             issue_with("018f0000000000000000000000000002", "bob"),
         ];
-        let d = assign_display_ids(&issues);
+        let d = assign_display_ids(&issues, None);
         assert!(matches!(resolve("", &d), Resolution::None));
         assert!(matches!(resolve("   ", &d), Resolution::None));
     }
@@ -305,7 +323,7 @@ mod tests {
         let earlier = "018f0000000000000000000000000010";
         let later = "018f0000000000000000000000000011";
         let issues = vec![issue_with(later, "alice"), issue_with(earlier, "alice")];
-        let d = assign_display_ids(&issues);
+        let d = assign_display_ids(&issues, None);
         assert_eq!(d[earlier].nonce, "alice-1");
         assert_eq!(d[later].nonce, "alice-2");
     }
@@ -317,7 +335,7 @@ mod tests {
             issue_with("018fabcdef00000000000000000000aa", "bob"),
             issue_with("018fabcdef00000000000000000000bb", "bob"),
         ];
-        let d = assign_display_ids(&issues);
+        let d = assign_display_ids(&issues, None);
 
         // Actor-nonce.
         assert!(
@@ -338,5 +356,35 @@ mod tests {
         // No match.
         assert!(matches!(resolve("ffffffff", &d), Resolution::None));
         assert!(matches!(resolve("nobody-3", &d), Resolution::None));
+    }
+
+    #[test]
+    fn project_prefix_scopes_unambiguous_handles() {
+        let issues = vec![
+            issue_with("018f0000000000000000000000000001", "alice"),
+            issue_with("018f0000000000000000000000000002", "alice"),
+        ];
+        let d = assign_display_ids(&issues, Some("myproject"));
+        // Solo: prefixed, no actor name anywhere.
+        assert_eq!(d["018f0000000000000000000000000001"].handle, "myproject-#1");
+        assert_eq!(d["018f0000000000000000000000000002"].handle, "myproject-#2");
+        // The prefixed handle resolves, with or without the `#`, and so does the
+        // bare number.
+        assert!(matches!(resolve("myproject-#1", &d), Resolution::Unique(_)));
+        assert!(matches!(resolve("myproject-1", &d), Resolution::Unique(_)));
+        assert!(matches!(resolve("1", &d), Resolution::Unique(_)));
+    }
+
+    #[test]
+    fn prefix_yields_to_actor_on_collision() {
+        // Two actors share #1: the prefix gives way to the actor qualifier so the
+        // colliding issues stay distinguishable (the prefix cannot disambiguate).
+        let issues = vec![
+            issue_with("018f0000000000000000000000000001", "alice"),
+            issue_with("018f0000000000000000000000000002", "bob"),
+        ];
+        let d = assign_display_ids(&issues, Some("myproject"));
+        assert_eq!(d["018f0000000000000000000000000001"].handle, "alice-#1");
+        assert_eq!(d["018f0000000000000000000000000002"].handle, "bob-#1");
     }
 }

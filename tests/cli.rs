@@ -441,5 +441,100 @@ fn help_prints_version() {
     let repo = new_repo();
     let (out, ok) = gli(repo.path(), &["--help"]);
     assert!(ok);
-    assert!(out.contains("gli 0.1.0"), "help should show version: {out}");
+    assert!(out.contains("gli 0.1."), "help should show version: {out}");
+}
+
+#[test]
+fn purge_preserves_other_comments_edits() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "P"]);
+    gli(dir, &["comment", "alice-1", "first"]);
+    gli(dir, &["comment", "alice-1", "second"]);
+    // Edit both comments.
+    gli(dir, &["comment", "edit", "alice-1", "1", "first-edited"]);
+    gli(dir, &["comment", "edit", "alice-1", "2", "second-edited"]);
+
+    // Purge comment 1. Purge must drop only the ops targeting the purged comment,
+    // so comment 2's edit has to survive intact.
+    let (_, ok) = gli(dir, &["comment", "purge", "alice-1", "1"]);
+    assert!(ok);
+
+    let (json, _) = gli(dir, &["show", "alice-1", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let c = v["comments"].as_array().unwrap();
+    assert_eq!(c.len(), 1, "only the un-purged comment remains");
+    assert_eq!(
+        c[0]["text"], "second-edited",
+        "its edit must survive the purge"
+    );
+    assert_eq!(c[0]["edited"], true);
+}
+
+#[test]
+fn init_hints_at_display_prefix_and_default_is_bare() {
+    let repo = TempDir::new().unwrap();
+    let dir = repo.path();
+    git(dir, &["init", "-q"]);
+    git(dir, &["config", "user.name", "Alice"]);
+    git(dir, &["config", "user.email", "alice@example.com"]);
+
+    let (out, ok) = gli(dir, &["init"]);
+    assert!(ok);
+    assert!(
+        out.contains("display-prefix"),
+        "init should hint at the prefix: {out}"
+    );
+
+    // The default stays bare: a fresh issue shows #1, not a prefixed handle.
+    gli(dir, &["create", "First"]);
+    let (ls, _) = gli(dir, &["ls"]);
+    assert!(
+        ls.contains("#1") && !ls.contains("-#1"),
+        "default must be bare: {ls}"
+    );
+}
+
+#[test]
+fn migrate_is_a_noop_at_the_current_format_version() {
+    let repo = new_repo();
+    let dir = repo.path();
+    // No issues: nothing to do.
+    let (out, ok) = gli(dir, &["migrate"]);
+    assert!(ok && out.contains("No issues to migrate"), "got: {out}");
+    // With issues, it reports they are already current.
+    gli(dir, &["create", "One"]);
+    let (out, ok) = gli(dir, &["migrate"]);
+    assert!(ok && out.contains("Nothing to migrate"), "got: {out}");
+}
+
+#[test]
+fn display_prefix_scopes_handles_and_resolves() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "First"]);
+    gli(dir, &["create", "Second"]);
+
+    // Default: bare numbers, no prefix.
+    let (out, _) = gli(dir, &["ls"]);
+    assert!(out.contains("#1") && out.contains("#2"), "got: {out}");
+    assert!(!out.contains("proj-#"), "no prefix by default: {out}");
+
+    // Turn on an explicit prefix via the config command.
+    let (out, ok) = gli(dir, &["config", "set", "display-prefix", "proj"]);
+    assert!(ok, "config set should accept display-prefix: {out}");
+    let (out, _) = gli(dir, &["ls"]);
+    assert!(out.contains("proj-#1"), "handles should be prefixed: {out}");
+
+    // The prefixed handle resolves, and the bare number still does too.
+    let (out, ok) = gli(dir, &["show", "proj-#1", "--json"]);
+    assert!(ok && out.contains("\"handle\": \"proj-#1\""), "got: {out}");
+    let (out, ok) = gli(dir, &["show", "1", "--json"]);
+    assert!(ok && out.contains("\"handle\": \"proj-#1\""), "got: {out}");
+
+    // Clearing it restores bare numbers.
+    let (_, ok) = gli(dir, &["config", "set", "display-prefix", ""]);
+    assert!(ok);
+    let (out, _) = gli(dir, &["ls"]);
+    assert!(!out.contains("proj-#"), "prefix cleared: {out}");
 }

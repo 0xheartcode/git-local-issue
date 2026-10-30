@@ -17,15 +17,23 @@ use std::collections::HashSet;
 
 /// A ref that is not a usable issue and can be safely quarantined.
 pub struct Repair {
+    /// The issue uuid (the ref's leaf name).
     pub uuid: String,
+    /// The commit the ref points at.
     pub tip: String,
+    /// Why the ref is not a usable issue.
     pub reason: String,
 }
 
+/// The outcome of an integrity check over every issue chain.
 pub struct Report {
+    /// How many `refs/issues/*` refs were examined.
     pub issue_count: usize,
+    /// Informational findings that do not fail the check.
     pub notes: Vec<String>,
+    /// Integrity violations that cause a non-zero exit.
     pub problems: Vec<String>,
+    /// Refs that are unusable but can be safely quarantined.
     pub repairable: Vec<Repair>,
 }
 
@@ -52,6 +60,7 @@ pub fn quarantine(backend: &dyn GitBackend, repairs: &[Repair]) -> Result<Vec<St
     Ok(actions)
 }
 
+/// Check every issue chain for its structural invariants and build a report.
 pub fn check(backend: &dyn GitBackend) -> Result<Report> {
     let mut report = Report {
         issue_count: 0,

@@ -67,6 +67,7 @@ pub struct Store<'a> {
 }
 
 impl<'a> Store<'a> {
+    /// Wrap a [`GitBackend`] in a store that performs issue writes.
     pub fn new(backend: &'a dyn GitBackend) -> Store<'a> {
         Store { backend }
     }
@@ -307,6 +308,13 @@ mod tests {
             validate_op(&OpKind::SetFileNote {
                 path: "p".into(),
                 note: over_limit(),
+            })
+            .is_err()
+        );
+        assert!(
+            validate_op(&OpKind::EditComment {
+                target: "t".into(),
+                text: over_limit(),
             })
             .is_err()
         );

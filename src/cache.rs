@@ -41,7 +41,8 @@ impl Cache {
         }
 
         issues.sort_by(|a, b| a.uuid.cmp(&b.uuid));
-        let display = id::assign_display_ids(&issues);
+        let prefix = display_prefix(backend);
+        let display = id::assign_display_ids(&issues, prefix.as_deref());
 
         Ok(Cache {
             issues,
@@ -94,6 +95,48 @@ impl Cache {
             }
         }
     }
+}
+
+/// The display prefix for handles, from `gli.default.display-prefix`
+/// (`gli config set display-prefix <value>`).
+///
+/// Unset or empty means no prefix (bare `#N`, the default). The value `auto`
+/// derives a slug from the repository. Any other value is used as the prefix
+/// (slugified for display safety).
+fn display_prefix(backend: &dyn GitBackend) -> Option<String> {
+    match backend.config("gli.default.display-prefix").as_deref() {
+        None | Some("") => None,
+        Some("auto") => derive_project_slug(backend),
+        Some(explicit) => match id::actor_slug(explicit).as_str() {
+            "anon" => None,
+            slug => Some(slug.to_string()),
+        },
+    }
+}
+
+/// Derive a project slug from the repository: the working-tree directory name,
+/// else the `remote.origin.url` repository name. `None` if neither yields one.
+fn derive_project_slug(backend: &dyn GitBackend) -> Option<String> {
+    if let Ok(root) = backend.repo_root() {
+        if let Some(name) = root.file_name().and_then(|n| n.to_str()) {
+            let slug = id::actor_slug(name);
+            if slug != "anon" {
+                return Some(slug);
+            }
+        }
+    }
+    if let Some(url) = backend.config("remote.origin.url") {
+        let tail = url
+            .rsplit('/')
+            .next()
+            .unwrap_or("")
+            .trim_end_matches(".git");
+        let slug = id::actor_slug(tail);
+        if slug != "anon" {
+            return Some(slug);
+        }
+    }
+    None
 }
 
 /// Read and parse an issue's whole op log from its chain tip, attaching commit

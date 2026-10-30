@@ -116,6 +116,9 @@ Every issue has two ways to refer to it:
   number (`gli show 1`), since a shell treats a leading `#` as a comment. Once
   two actors share a number (after a sync), the handle qualifies with the actor,
   e.g. `alice-#1` versus `bob-#1`, and you disambiguate by typing `alice-1`.
+  Optionally set a project prefix with `gli config set display-prefix <name>` (or
+  `auto` to derive it from the repository), so handles show as `myproject-#1`;
+  the prefixed handle resolves too.
 
 A few things worth knowing:
 
@@ -190,7 +193,9 @@ versioned format), see FORMAT.md.
 
 ## Current limitations
 
-Version 0.1.0 is the local, single-user core. It is offline-first and complete for
-one person on one machine, but it does not yet sync between machines or merge
-concurrent edits from multiple actors. Multi-machine sync and CRDT merge are
-planned (the data model is already CRDT-ready). See ROADMAP.md for what is coming.
+The current release is the local, single-user core. It is offline-first and
+complete for one person on one machine, but it does not yet sync between machines
+or merge concurrent edits from multiple actors. Multi-machine sync and CRDT merge
+are planned (the data model is already CRDT-ready). See ROADMAP.md for what is
+coming. After upgrading `gli`, `gli migrate` reports the on-disk format version;
+at the current version there is nothing to migrate.

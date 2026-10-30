@@ -8,12 +8,14 @@ use crate::cache::Cache;
 use crate::model::Issue;
 use serde::Serialize;
 
+/// JSON DTO for a single issue in `--format json` output.
 #[derive(Serialize)]
 pub struct IssueJson {
     /// Full UUIDv7 (truth id).
     pub uuid: String,
-    /// Display handle: `#N`, or `alice-#N` when a number is shared across actors
-    /// (may drift; not a permanent handle).
+    /// Display handle: `#N` (or `myproject-#N` with a display prefix set), or
+    /// `alice-#N` when a number is shared across actors (may drift; not a
+    /// permanent handle).
     pub handle: String,
     /// Per-actor display number (the `N` in the handle; may drift).
     pub number: usize,
@@ -21,41 +23,61 @@ pub struct IssueJson {
     pub nonce: String,
     /// Short uuid prefix (a permanent handle).
     pub short: String,
+    /// The issue title.
     pub title: String,
+    /// The issue description (body text).
     pub description: String,
     /// "open" or "closed".
     pub state: String,
+    /// Optional reason recorded with the current state (for example a close reason).
     pub reason: Option<String>,
+    /// Optional reference to what fixed the issue (recorded with the state).
     pub fixed_by: Option<String>,
     /// First assignee, kept for compact/legacy consumers.
     pub assignee: Option<String>,
     /// All assignees.
     pub assignees: Vec<String>,
+    /// Priority label, if set.
     pub priority: Option<String>,
+    /// Labels on the issue.
     pub labels: Vec<String>,
     /// Custom fields as (key, value) pairs.
     pub fields: Vec<(String, String)>,
     /// Related files with optional notes.
     pub files: Vec<FileJson>,
+    /// Whether the issue is archived (hidden from default listings).
     pub archived: bool,
+    /// Actor slug that created the issue.
     pub creator: String,
+    /// Number of comments on the issue.
     pub comment_count: usize,
+    /// The issue comments.
     pub comments: Vec<CommentJson>,
 }
 
+/// JSON DTO for a related file entry on an issue.
 #[derive(Serialize)]
 pub struct FileJson {
+    /// The file path.
     pub path: String,
+    /// Optional note attached to the file.
     pub note: Option<String>,
 }
 
+/// JSON DTO for a single comment on an issue.
 #[derive(Serialize)]
 pub struct CommentJson {
+    /// The comment id (its op-id).
     pub id: String,
+    /// Actor slug that authored the comment.
     pub actor: String,
+    /// Optional human author name.
     pub author: Option<String>,
+    /// The comment text.
     pub text: String,
+    /// True when the comment has been edited.
     pub edited: bool,
+    /// True when the comment has been hidden (soft-deleted).
     pub hidden: bool,
 }
 

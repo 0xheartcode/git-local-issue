@@ -95,16 +95,19 @@ pub struct TrailerBlock {
 }
 
 impl TrailerBlock {
+    /// Start an empty trailer block.
     pub fn new() -> Self {
         TrailerBlock { lines: Vec::new() }
     }
 
+    /// Append a `Key: value` trailer line (newlines in the value are collapsed).
     pub fn push(&mut self, key: &str, value: &str) {
         // Trailer values are single-line; collapse any newlines defensively.
         let value = value.replace('\n', " ");
         self.lines.push((key.to_string(), value));
     }
 
+    /// Render the block as newline-joined trailer lines.
     pub fn render(&self) -> String {
         self.lines
             .iter()

@@ -303,6 +303,15 @@ recovers a repo that one bad ref had bricked.",
         fix: bool,
     },
 
+    /// Migrate issue data to the current on-disk format version.
+    #[command(
+        long_about = "Migrate issue data to the on-disk format version this build understands. \
+At the current format version there is nothing to migrate, so this reports the state and exits. \
+It is the command to run after upgrading gli, and the home for a format upgrade when one lands. \
+Read-only until a migration is required."
+    )]
+    Migrate,
+
     /// Get, set, or list per-repository defaults.
     #[command(
         long_about = "Manage per-repository defaults, stored in git config under `gli.default.*`. \
@@ -475,7 +484,7 @@ enum ConfigAction {
 }
 
 /// The config keys `gli config` accepts (stored as `gli.default.<key>`).
-const CONFIG_KEYS: [&str; 4] = ["priority", "assignee", "labels", "format"];
+const CONFIG_KEYS: [&str; 5] = ["priority", "assignee", "labels", "format", "display-prefix"];
 
 /// Parse args and run. Returns a process exit code.
 pub fn run() -> i32 {
@@ -578,6 +587,7 @@ fn dispatch(command: Command) -> Result<i32> {
         Command::Restore { id } => cmd_restore(id),
         Command::Status => cmd_status(),
         Command::Fsck { fix } => cmd_fsck(fix),
+        Command::Migrate => cmd_migrate(),
         Command::Config { action } => cmd_config(action),
         Command::Completions { shell } => {
             cmd_completions(shell);
@@ -602,6 +612,9 @@ fn cmd_init() -> Result<i32> {
     println!("Initialized gli issue tracking in {}", root.display());
     println!("Issues live under refs/issues/*. Back them up with:");
     println!("  git bundle create issues.bundle --glob='refs/issues/*'");
+    println!(
+        "Tip: issues show as #1, #2. For project-prefixed handles like myproject-#1,\n     run `gli config set display-prefix auto` (or a name of your choosing)."
+    );
     Ok(0)
 }
 
@@ -674,58 +687,26 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
         .or_else(|| backend.config("gli.default.format"))
         .unwrap_or_else(|| "short".to_string());
 
-    let state_filter = match args.state.as_deref() {
+    let state = match args.state.as_deref() {
         Some(s) => Some(
             State::parse(s).ok_or_else(|| anyhow::anyhow!("invalid state '{s}' (open|closed)"))?,
         ),
         None => None,
     };
-    let search = args.search.as_deref().map(str::to_lowercase);
 
-    let mut rows: Vec<&crate::model::Issue> = cache
-        .issues
-        .iter()
-        // Archived visibility: hidden by default, only-archived with --archived,
-        // both with --all.
-        .filter(|i| {
-            if args.all {
-                true
-            } else if args.archived {
-                i.archived()
-            } else {
-                !i.archived()
-            }
-        })
-        .filter(|i| match &state_filter {
-            Some(want) => &i.state().state == want,
-            None => true,
-        })
-        // Every requested label must be present (AND).
-        .filter(|i| args.labels.iter().all(|l| i.labels.contains(l)))
-        .filter(|i| match &args.assignee {
-            Some(a) => i.assignees().iter().any(|x| x == a),
-            None => true,
-        })
-        .filter(|i| match &args.priority {
-            Some(p) => i.priority() == Some(p.as_str()),
-            None => true,
-        })
-        .filter(|i| match &args.creator {
-            Some(c) => &i.creator == c,
-            None => true,
-        })
-        .filter(|i| match &search {
-            Some(term) => issue_matches_search(i, term),
-            None => true,
-        })
-        .collect();
+    let filter = crate::query::LsFilter {
+        state,
+        labels: args.labels,
+        assignee: args.assignee,
+        priority: args.priority,
+        creator: args.creator,
+        search: args.search.as_deref().map(str::to_lowercase),
+        archived: args.archived,
+        all: args.all,
+        sort: crate::query::Sort::parse(&args.sort),
+    };
 
-    match args.sort.as_str() {
-        "oldest" => rows.sort_by(|a, b| a.uuid.cmp(&b.uuid)),
-        "title" => rows.sort_by_key(|a| a.title().to_lowercase()),
-        // "newest" (default): UUIDv7 is time-ordered, so reverse-uuid is newest-first.
-        _ => rows.sort_by(|a, b| b.uuid.cmp(&a.uuid)),
-    }
+    let rows = crate::query::select(&cache.issues, &filter);
 
     if format == "json" {
         println!("{}", crate::output::render_issues(&cache, &rows));
@@ -739,89 +720,74 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
 
     for issue in rows {
         let d = cache.display_of(&issue.uuid);
-        let mark = issue.state().state.as_str();
-        let arch = if issue.archived() { " (archived)" } else { "" };
-        if format == "full" {
-            println!(
-                "{} ({})  [{}]{}  {}",
-                d.handle,
-                d.short,
-                mark,
-                arch,
-                issue.title()
-            );
-            let assignees = issue.assignees();
-            if !assignees.is_empty() {
-                println!("    assignees: {}", assignees.join(", "));
-            }
-            if let Some(p) = issue.priority() {
-                println!("    priority: {p}");
-            }
-            let labels = issue.labels();
-            if !labels.is_empty() {
-                println!("    labels: {}", labels.join(", "));
-            }
-            let fields = issue.fields();
-            if !fields.is_empty() {
-                let joined = fields
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                println!("    fields: {joined}");
-            }
-            let files = issue.files();
-            if !files.is_empty() {
-                println!(
-                    "    files: {}",
-                    files
-                        .iter()
-                        .map(|(p, _)| p.clone())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
-            println!("    comments: {}", issue.comments.len());
-        } else {
-            let labels = issue.labels();
-            let label_str = if labels.is_empty() {
-                String::new()
-            } else {
-                format!("  [{}]", labels.join(", "))
-            };
-            println!(
-                "{:<12} {:<8} {:<7} {}{}{}",
-                d.handle,
-                d.short,
-                mark,
-                issue.title(),
-                arch,
-                label_str
-            );
-        }
+        print_issue_row(issue, &d, format == "full");
     }
     Ok(0)
 }
 
-/// Case-insensitive substring match over an issue's title, description, labels,
-/// and comment text. `term` is expected already lowercased.
-fn issue_matches_search(issue: &crate::model::Issue, term: &str) -> bool {
-    if issue.title().to_lowercase().contains(term)
-        || issue.description().to_lowercase().contains(term)
-    {
-        return true;
+/// Print one `ls` row: the compact single line, or the full multi-line block
+/// with assignees, priority, labels, fields, files, and comment count.
+fn print_issue_row(issue: &crate::model::Issue, d: &crate::id::DisplayId, full: bool) {
+    let mark = issue.state().state.as_str();
+    let arch = if issue.archived() { " (archived)" } else { "" };
+    if full {
+        println!(
+            "{} ({})  [{}]{}  {}",
+            d.handle,
+            d.short,
+            mark,
+            arch,
+            issue.title()
+        );
+        let assignees = issue.assignees();
+        if !assignees.is_empty() {
+            println!("    assignees: {}", assignees.join(", "));
+        }
+        if let Some(p) = issue.priority() {
+            println!("    priority: {p}");
+        }
+        let labels = issue.labels();
+        if !labels.is_empty() {
+            println!("    labels: {}", labels.join(", "));
+        }
+        let fields = issue.fields();
+        if !fields.is_empty() {
+            let joined = fields
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("    fields: {joined}");
+        }
+        let files = issue.files();
+        if !files.is_empty() {
+            println!(
+                "    files: {}",
+                files
+                    .iter()
+                    .map(|(p, _)| p.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        println!("    comments: {}", issue.comments.len());
+    } else {
+        let labels = issue.labels();
+        let label_str = if labels.is_empty() {
+            String::new()
+        } else {
+            format!("  [{}]", labels.join(", "))
+        };
+        println!(
+            "{:<12} {:<8} {:<7} {}{}{}",
+            d.handle,
+            d.short,
+            mark,
+            issue.title(),
+            arch,
+            label_str
+        );
     }
-    if issue
-        .labels()
-        .iter()
-        .any(|l| l.to_lowercase().contains(term))
-    {
-        return true;
-    }
-    issue
-        .comments
-        .iter()
-        .any(|c| c.text.to_lowercase().contains(term))
 }
 
 fn cmd_show(id: String, ops: bool, json: bool) -> Result<i32> {
@@ -1395,6 +1361,40 @@ fn cmd_fsck(fix: bool) -> Result<i32> {
 }
 
 /// Validate that a config key is one gli understands.
+fn cmd_migrate() -> Result<i32> {
+    let backend = backend()?;
+    let cache = Cache::build(&backend)?;
+    let current = crate::model::FORMAT_VERSION;
+
+    if cache.issues.is_empty() {
+        println!("No issues to migrate.");
+        return Ok(0);
+    }
+
+    // The highest format version stamped on any operation across all issues.
+    let max_seen = cache
+        .ops
+        .values()
+        .flatten()
+        .map(|op| op.format_version)
+        .max()
+        .unwrap_or(current);
+
+    let count = cache.issues.len();
+    if max_seen > current {
+        // Data written by a newer gli. We do not downgrade it.
+        println!(
+            "{count} issue(s) include operations at format version {max_seen}, newer than this \
+             build (format version {current}). Upgrade gli to read them fully."
+        );
+    } else {
+        // At the current version there is nothing to migrate. A future breaking
+        // format change rewrites the op chains here.
+        println!("{count} issue(s) already at format version {current}. Nothing to migrate.");
+    }
+    Ok(0)
+}
+
 fn check_config_key(key: &str) -> Result<()> {
     if CONFIG_KEYS.contains(&key) {
         Ok(())

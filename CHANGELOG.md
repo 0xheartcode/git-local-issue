@@ -6,9 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Entries are kept on a single line each: cargo-dist injects this file into the GitHub Release body, where GitHub renders every newline as a hard break, so wrapped lines would show as ragged mid-sentence breaks.
 
+Pre-1.0, `gli` stays on a packed `0.1.x` patch line: every release is additive and backward compatible, and the on-disk `Format-Version` stays `1`. No minor or major bump is planned (see ROADMAP.md); a `1.0.0` format-freeze promise is deliberately parked.
+
 ## [Unreleased]
 
-Work continues toward 0.2.0: multi-machine sync (push/pull `refs/issues/*`) and CRDT merge across actors are the next focus (see ROADMAP.md).
+Nothing yet. The next release continues the packed `0.1.x` line (see ROADMAP.md).
+
+## [0.1.1] - 2026-10-30
+
+Theme: project-prefixed display numbers, a format-migration command, and the quality walls (a gated coverage floor and a documented public API). Additive and backward compatible; `Format-Version` stays `1`.
+
+### Added
+
+- **Project-prefixed display numbers**: `gli config set display-prefix <name>` (or `auto` to derive a slug from the repository) shows handles as `myproject-#1` instead of a bare `#1`, so a reference carries the project and a solo tracker never shows an actor name. Off by default; the actor-qualified form still appears only when two actors share a number after a sync, and resolution accepts the prefixed handle. `gli init` prints a tip pointing at it. See docs/design/display-numbers.md.
+- **`gli migrate`**: reports the on-disk format version of the tracked issues and exits. At the current version there is nothing to migrate; it reserves the upgrade seam and is the command to run after upgrading gli.
+- **Architecture and design docs**: docs/ARCHITECTURE.md records the core design as an ADR, and docs/design/ holds per-feature design notes.
+
+### Changed
+
+- **Documented public API**: the library now builds under `#![deny(missing_docs)]`, so every public item is documented and the docs.rs pages are complete.
+- **Quality gate**: `make check` now enforces a line-coverage floor and adds `make cov-html`, and CI runs exactly the local walls. Internally, the `ls` filter, sort, and list rendering moved into a testable module with no change in behaviour, and the toolchain is pinned via `rust-toolchain.toml`.
 
 ## [0.1.0] - 2026-09-22
 
@@ -42,5 +59,6 @@ Initial release: the local, single-user core. Issues are stored natively in Git 
 
 - SIGPIPE is reset to its default on Unix, so `gli ls | head` and `gli man | head` no longer error or panic on a closed pipe.
 
-[Unreleased]: https://github.com/0xheartcode/git-local-issue/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/0xheartcode/git-local-issue/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/0xheartcode/git-local-issue/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/0xheartcode/git-local-issue/releases/tag/v0.1.0

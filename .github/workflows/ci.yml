@@ -24,11 +24,10 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
+      # CI runs exactly the local gate: fmt, clippy (-D warnings), tests, and the
+      # coverage floor. `make check` is the single source of truth.
       - name: make check
         run: make check
-
-      - name: Coverage (reported, not gated)
-        run: make coverage
 
       - name: Packaging dry-run (cargo publish --dry-run)
         run: make package
