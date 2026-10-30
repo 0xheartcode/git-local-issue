@@ -445,6 +445,33 @@ fn help_prints_version() {
 }
 
 #[test]
+fn purge_preserves_other_comments_edits() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "P"]);
+    gli(dir, &["comment", "alice-1", "first"]);
+    gli(dir, &["comment", "alice-1", "second"]);
+    // Edit both comments.
+    gli(dir, &["comment", "edit", "alice-1", "1", "first-edited"]);
+    gli(dir, &["comment", "edit", "alice-1", "2", "second-edited"]);
+
+    // Purge comment 1. Purge must drop only the ops targeting the purged comment,
+    // so comment 2's edit has to survive intact.
+    let (_, ok) = gli(dir, &["comment", "purge", "alice-1", "1"]);
+    assert!(ok);
+
+    let (json, _) = gli(dir, &["show", "alice-1", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let c = v["comments"].as_array().unwrap();
+    assert_eq!(c.len(), 1, "only the un-purged comment remains");
+    assert_eq!(
+        c[0]["text"], "second-edited",
+        "its edit must survive the purge"
+    );
+    assert_eq!(c[0]["edited"], true);
+}
+
+#[test]
 fn migrate_is_a_noop_at_the_current_format_version() {
     let repo = new_repo();
     let dir = repo.path();

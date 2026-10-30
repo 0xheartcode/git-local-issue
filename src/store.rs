@@ -311,6 +311,13 @@ mod tests {
             })
             .is_err()
         );
+        assert!(
+            validate_op(&OpKind::EditComment {
+                target: "t".into(),
+                text: over_limit(),
+            })
+            .is_err()
+        );
     }
 
     #[test]
