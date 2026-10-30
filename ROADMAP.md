@@ -86,10 +86,11 @@ release. Additive and backward compatible.
   out of `cli.rs` into `id` (or a small render unit) and unit-test it. Prereq for I.
 
 ### Display numbering (display-only; Format-Version stays 1)
-- [ ] **I. `gli.display.prefix`** (S) `[ux]`. Codebase/project-prefixed handles
-  (`myproject-#1`). Default stays bare `#N`; the **actor** only ever surfaces on a
-  true post-sync collision (`alice-#1` vs `bob-#1`). Solo users never see their
-  name. Per-actor numbering stays the coordination-free truth underneath.
+- [ ] **I. Project-prefixed display numbers** (S) `[ux]`. `gli config set
+  display-prefix <name>` shows handles as `myproject-#1`. Default stays bare `#N`;
+  the **actor** only ever surfaces on a true post-sync collision (`alice-#1` vs
+  `bob-#1`). Solo users never see their name. Per-actor numbering stays the
+  coordination-free truth underneath.
 - [ ] **J. Auto-derive the prefix** (S) `[ux]`. Fall the prefix back to the repo's
   directory basename / remote name, so it works with zero config.
 

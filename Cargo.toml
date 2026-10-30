@@ -1,6 +1,6 @@
 [package]
 name = "git-local-issue"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 description = "Distributed, offline-first issue tracker stored natively in Git (the `gli` command)."
