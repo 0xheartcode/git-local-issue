@@ -674,58 +674,26 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
         .or_else(|| backend.config("gli.default.format"))
         .unwrap_or_else(|| "short".to_string());
 
-    let state_filter = match args.state.as_deref() {
+    let state = match args.state.as_deref() {
         Some(s) => Some(
             State::parse(s).ok_or_else(|| anyhow::anyhow!("invalid state '{s}' (open|closed)"))?,
         ),
         None => None,
     };
-    let search = args.search.as_deref().map(str::to_lowercase);
 
-    let mut rows: Vec<&crate::model::Issue> = cache
-        .issues
-        .iter()
-        // Archived visibility: hidden by default, only-archived with --archived,
-        // both with --all.
-        .filter(|i| {
-            if args.all {
-                true
-            } else if args.archived {
-                i.archived()
-            } else {
-                !i.archived()
-            }
-        })
-        .filter(|i| match &state_filter {
-            Some(want) => &i.state().state == want,
-            None => true,
-        })
-        // Every requested label must be present (AND).
-        .filter(|i| args.labels.iter().all(|l| i.labels.contains(l)))
-        .filter(|i| match &args.assignee {
-            Some(a) => i.assignees().iter().any(|x| x == a),
-            None => true,
-        })
-        .filter(|i| match &args.priority {
-            Some(p) => i.priority() == Some(p.as_str()),
-            None => true,
-        })
-        .filter(|i| match &args.creator {
-            Some(c) => &i.creator == c,
-            None => true,
-        })
-        .filter(|i| match &search {
-            Some(term) => issue_matches_search(i, term),
-            None => true,
-        })
-        .collect();
+    let filter = crate::query::LsFilter {
+        state,
+        labels: args.labels,
+        assignee: args.assignee,
+        priority: args.priority,
+        creator: args.creator,
+        search: args.search.as_deref().map(str::to_lowercase),
+        archived: args.archived,
+        all: args.all,
+        sort: crate::query::Sort::parse(&args.sort),
+    };
 
-    match args.sort.as_str() {
-        "oldest" => rows.sort_by(|a, b| a.uuid.cmp(&b.uuid)),
-        "title" => rows.sort_by_key(|a| a.title().to_lowercase()),
-        // "newest" (default): UUIDv7 is time-ordered, so reverse-uuid is newest-first.
-        _ => rows.sort_by(|a, b| b.uuid.cmp(&a.uuid)),
-    }
+    let rows = crate::query::select(&cache.issues, &filter);
 
     if format == "json" {
         println!("{}", crate::output::render_issues(&cache, &rows));
@@ -801,27 +769,6 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
         }
     }
     Ok(0)
-}
-
-/// Case-insensitive substring match over an issue's title, description, labels,
-/// and comment text. `term` is expected already lowercased.
-fn issue_matches_search(issue: &crate::model::Issue, term: &str) -> bool {
-    if issue.title().to_lowercase().contains(term)
-        || issue.description().to_lowercase().contains(term)
-    {
-        return true;
-    }
-    if issue
-        .labels()
-        .iter()
-        .any(|l| l.to_lowercase().contains(term))
-    {
-        return true;
-    }
-    issue
-        .comments
-        .iter()
-        .any(|c| c.text.to_lowercase().contains(term))
 }
 
 fn cmd_show(id: String, ops: bool, json: bool) -> Result<i32> {
