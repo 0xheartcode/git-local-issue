@@ -6,9 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Entries are kept on a single line each: cargo-dist injects this file into the GitHub Release body, where GitHub renders every newline as a hard break, so wrapped lines would show as ragged mid-sentence breaks.
 
+Pre-1.0, `gli` stays on a packed `0.1.x` patch line: every release is additive and backward compatible, and the on-disk `Format-Version` stays `1`. No minor or major bump is planned (see ROADMAP.md); a `1.0.0` format-freeze promise is deliberately parked.
+
 ## [Unreleased]
 
-Work continues toward 0.2.0: multi-machine sync (push/pull `refs/issues/*`) and CRDT merge across actors are the next focus (see ROADMAP.md).
+Next up is **0.1.1** (see ROADMAP.md): quality walls (gated coverage floor, mutation re-certification), a `cli.rs` refactor (extract the `ls` query and display rendering into testable units), and codebase-prefixed display numbers (`gli.display.prefix`, so solo use shows `myproject-#1` and never your name). All additive; `Format-Version` stays `1`.
 
 ## [0.1.0] - 2026-09-22
 
