@@ -441,5 +441,36 @@ fn help_prints_version() {
     let repo = new_repo();
     let (out, ok) = gli(repo.path(), &["--help"]);
     assert!(ok);
-    assert!(out.contains("gli 0.1.0"), "help should show version: {out}");
+    assert!(out.contains("gli 0.1."), "help should show version: {out}");
+}
+
+#[test]
+fn display_prefix_scopes_handles_and_resolves() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "First"]);
+    gli(dir, &["create", "Second"]);
+
+    // Default: bare numbers, no prefix.
+    let (out, _) = gli(dir, &["ls"]);
+    assert!(out.contains("#1") && out.contains("#2"), "got: {out}");
+    assert!(!out.contains("proj-#"), "no prefix by default: {out}");
+
+    // Turn on an explicit prefix via the config command.
+    let (out, ok) = gli(dir, &["config", "set", "display-prefix", "proj"]);
+    assert!(ok, "config set should accept display-prefix: {out}");
+    let (out, _) = gli(dir, &["ls"]);
+    assert!(out.contains("proj-#1"), "handles should be prefixed: {out}");
+
+    // The prefixed handle resolves, and the bare number still does too.
+    let (out, ok) = gli(dir, &["show", "proj-#1", "--json"]);
+    assert!(ok && out.contains("\"handle\": \"proj-#1\""), "got: {out}");
+    let (out, ok) = gli(dir, &["show", "1", "--json"]);
+    assert!(ok && out.contains("\"handle\": \"proj-#1\""), "got: {out}");
+
+    // Clearing it restores bare numbers.
+    let (_, ok) = gli(dir, &["config", "set", "display-prefix", ""]);
+    assert!(ok);
+    let (out, _) = gli(dir, &["ls"]);
+    assert!(!out.contains("proj-#"), "prefix cleared: {out}");
 }

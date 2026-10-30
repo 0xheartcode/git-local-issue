@@ -12,8 +12,9 @@ use serde::Serialize;
 pub struct IssueJson {
     /// Full UUIDv7 (truth id).
     pub uuid: String,
-    /// Display handle: `#N`, or `alice-#N` when a number is shared across actors
-    /// (may drift; not a permanent handle).
+    /// Display handle: `#N` (or `myproject-#N` with a display prefix set), or
+    /// `alice-#N` when a number is shared across actors (may drift; not a
+    /// permanent handle).
     pub handle: String,
     /// Per-actor display number (the `N` in the handle; may drift).
     pub number: usize,

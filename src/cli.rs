@@ -475,7 +475,7 @@ enum ConfigAction {
 }
 
 /// The config keys `gli config` accepts (stored as `gli.default.<key>`).
-const CONFIG_KEYS: [&str; 4] = ["priority", "assignee", "labels", "format"];
+const CONFIG_KEYS: [&str; 5] = ["priority", "assignee", "labels", "format", "display-prefix"];
 
 /// Parse args and run. Returns a process exit code.
 pub fn run() -> i32 {
@@ -707,68 +707,74 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
 
     for issue in rows {
         let d = cache.display_of(&issue.uuid);
-        let mark = issue.state().state.as_str();
-        let arch = if issue.archived() { " (archived)" } else { "" };
-        if format == "full" {
-            println!(
-                "{} ({})  [{}]{}  {}",
-                d.handle,
-                d.short,
-                mark,
-                arch,
-                issue.title()
-            );
-            let assignees = issue.assignees();
-            if !assignees.is_empty() {
-                println!("    assignees: {}", assignees.join(", "));
-            }
-            if let Some(p) = issue.priority() {
-                println!("    priority: {p}");
-            }
-            let labels = issue.labels();
-            if !labels.is_empty() {
-                println!("    labels: {}", labels.join(", "));
-            }
-            let fields = issue.fields();
-            if !fields.is_empty() {
-                let joined = fields
-                    .iter()
-                    .map(|(k, v)| format!("{k}={v}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                println!("    fields: {joined}");
-            }
-            let files = issue.files();
-            if !files.is_empty() {
-                println!(
-                    "    files: {}",
-                    files
-                        .iter()
-                        .map(|(p, _)| p.clone())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
-            println!("    comments: {}", issue.comments.len());
-        } else {
-            let labels = issue.labels();
-            let label_str = if labels.is_empty() {
-                String::new()
-            } else {
-                format!("  [{}]", labels.join(", "))
-            };
-            println!(
-                "{:<12} {:<8} {:<7} {}{}{}",
-                d.handle,
-                d.short,
-                mark,
-                issue.title(),
-                arch,
-                label_str
-            );
-        }
+        print_issue_row(issue, &d, format == "full");
     }
     Ok(0)
+}
+
+/// Print one `ls` row: the compact single line, or the full multi-line block
+/// with assignees, priority, labels, fields, files, and comment count.
+fn print_issue_row(issue: &crate::model::Issue, d: &crate::id::DisplayId, full: bool) {
+    let mark = issue.state().state.as_str();
+    let arch = if issue.archived() { " (archived)" } else { "" };
+    if full {
+        println!(
+            "{} ({})  [{}]{}  {}",
+            d.handle,
+            d.short,
+            mark,
+            arch,
+            issue.title()
+        );
+        let assignees = issue.assignees();
+        if !assignees.is_empty() {
+            println!("    assignees: {}", assignees.join(", "));
+        }
+        if let Some(p) = issue.priority() {
+            println!("    priority: {p}");
+        }
+        let labels = issue.labels();
+        if !labels.is_empty() {
+            println!("    labels: {}", labels.join(", "));
+        }
+        let fields = issue.fields();
+        if !fields.is_empty() {
+            let joined = fields
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("    fields: {joined}");
+        }
+        let files = issue.files();
+        if !files.is_empty() {
+            println!(
+                "    files: {}",
+                files
+                    .iter()
+                    .map(|(p, _)| p.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        println!("    comments: {}", issue.comments.len());
+    } else {
+        let labels = issue.labels();
+        let label_str = if labels.is_empty() {
+            String::new()
+        } else {
+            format!("  [{}]", labels.join(", "))
+        };
+        println!(
+            "{:<12} {:<8} {:<7} {}{}{}",
+            d.handle,
+            d.short,
+            mark,
+            issue.title(),
+            arch,
+            label_str
+        );
+    }
 }
 
 fn cmd_show(id: String, ops: bool, json: bool) -> Result<i32> {
