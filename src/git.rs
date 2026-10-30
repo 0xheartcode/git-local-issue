@@ -23,18 +23,26 @@ pub struct RefEntry {
 /// A raw commit read back from git, before op parsing.
 #[derive(Clone, Debug)]
 pub struct RawCommit {
+    /// The commit's own sha.
     pub sha: String,
+    /// The shas of this commit's parents (empty for a root).
     pub parents: Vec<String>,
+    /// The author's name.
     pub author_name: String,
+    /// The author's email.
     pub author_email: String,
+    /// The author timestamp as seconds since the unix epoch.
     pub author_time: i64,
+    /// The full commit message (subject, body, and trailers).
     pub message: String,
 }
 
 /// The git identity to stamp on a new op commit.
 #[derive(Clone, Debug)]
 pub struct Author {
+    /// The identity's name.
     pub name: String,
+    /// The identity's email.
     pub email: String,
 }
 

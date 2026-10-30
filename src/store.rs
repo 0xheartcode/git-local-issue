@@ -67,6 +67,7 @@ pub struct Store<'a> {
 }
 
 impl<'a> Store<'a> {
+    /// Wrap a [`GitBackend`] in a store that performs issue writes.
     pub fn new(backend: &'a dyn GitBackend) -> Store<'a> {
         Store { backend }
     }

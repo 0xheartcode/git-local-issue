@@ -46,6 +46,7 @@ pub fn actor_slug(raw: &str) -> String {
 /// A resolved display handle for one issue.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DisplayId {
+    /// The issue's truth id (its permanent uuid).
     pub uuid: String,
     /// Actor-scoped nonce, e.g. `alice-3`. The typeable actor-qualified form.
     pub nonce: String,

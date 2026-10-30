@@ -10,6 +10,7 @@
 //!   * [`cache`]  - the disposable, rebuildable in-memory query cache
 //!   * [`fsck`]   - integrity checks
 //!   * [`cli`]    - the command surface
+#![deny(missing_docs)]
 
 pub mod cache;
 pub mod cli;

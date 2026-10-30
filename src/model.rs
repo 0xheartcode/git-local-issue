@@ -27,13 +27,17 @@ pub const FORMAT_VERSION: u32 = 1;
 // Operations
 // ---------------------------------------------------------------------------
 
+/// Whether an issue is open or closed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
+    /// The issue is open (active).
     Open,
+    /// The issue is closed (resolved or dismissed).
     Closed,
 }
 
 impl State {
+    /// The lowercase wire form of this state ("open" or "closed").
     pub fn as_str(&self) -> &'static str {
         match self {
             State::Open => "open",
@@ -41,6 +45,7 @@ impl State {
         }
     }
 
+    /// Parse a state from its wire form (case-insensitive); `None` if unknown.
     pub fn parse(s: &str) -> Option<State> {
         match s.trim().to_ascii_lowercase().as_str() {
             "open" => Some(State::Open),
@@ -54,73 +59,106 @@ impl State {
 /// version live on the enclosing [`Op`], not here.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OpKind {
+    /// Create the issue (the root op); seeds the initial field values.
     Create {
+        /// Initial title.
         title: String,
+        /// Initial description body.
         description: String,
+        /// Initial labels.
         labels: Vec<String>,
+        /// Initial single assignee, if any.
         assignee: Option<String>,
+        /// Initial priority, if any.
         priority: Option<String>,
     },
+    /// Append a comment to the grow-only comment log.
     Comment {
+        /// The comment body.
         text: String,
     },
+    /// Set the title (LWW-Register).
     SetTitle {
+        /// The new title.
         title: String,
     },
+    /// Set the description (LWW-Register).
     SetDescription {
+        /// The new description body.
         description: String,
     },
+    /// Open or close the issue (LWW-Register), with optional context.
     SetState {
+        /// The new open/closed state.
         state: State,
+        /// Optional reason recorded with the change.
         reason: Option<String>,
+        /// Optional commit or reference that fixed the issue.
         fixed_by: Option<String>,
     },
+    /// Set or clear the legacy single assignee (folds into the assignee set).
     SetAssignee {
         /// `None` means "unassigned" (an explicit clear).
         assignee: Option<String>,
     },
+    /// Set or clear the priority (LWW-Register).
     SetPriority {
+        /// The new priority, or `None` to clear.
         priority: Option<String>,
     },
+    /// Add a label (OR-Set add, tagged by this op's id).
     AddLabel {
+        /// The label to add.
         label: String,
     },
+    /// Remove a label (OR-Set remove).
     RemoveLabel {
+        /// The label to remove.
         label: String,
     },
     /// Archive (hide) or restore an issue. Soft and reversible: nothing is
     /// destroyed, the op log stays intact, and it folds as an LWW-Register.
     SetArchived {
+        /// `true` archives (hides) the issue, `false` restores it.
         archived: bool,
     },
     // --- optional metadata layer (all unenforced) ---
     /// Add an assignee (OR-Set; issues support multiple assignees).
     AddAssignee {
+        /// The assignee to add.
         assignee: String,
     },
     /// Remove an assignee (OR-Set).
     RemoveAssignee {
+        /// The assignee to remove.
         assignee: String,
     },
     /// Set or clear a custom field (LWW-Register per key; empty value clears).
     /// One generic mechanism for milestone, type, severity, due-date, etc.
     SetField {
+        /// The field name.
         key: String,
+        /// The field value; an empty value clears the field.
         value: String,
     },
     /// Attach a related file path with an optional note (OR-Set of paths plus
     /// an LWW note per path).
     AddFile {
+        /// The related file path.
         path: String,
+        /// An optional note for the path (empty means none).
         note: String,
     },
     /// Detach a related file path (OR-Set remove).
     RemoveFile {
+        /// The file path to detach.
         path: String,
     },
     /// Edit the note on an already-attached file path (LWW note per path).
     SetFileNote {
+        /// The file path whose note is set.
         path: String,
+        /// The new note.
         note: String,
     },
     /// Replace the text of an existing comment (LWW per comment, keyed by the
@@ -129,11 +167,13 @@ pub enum OpKind {
     EditComment {
         /// Op-id of the comment being edited.
         target: String,
+        /// The replacement comment text.
         text: String,
     },
     /// Soft-delete a comment (a tombstone keyed by the target comment's op-id).
     /// The fold renders it as deleted; the original text stays in the log.
     HideComment {
+        /// Op-id of the comment being hidden.
         target: String,
     },
 }
@@ -173,11 +213,15 @@ pub struct Op {
     pub lamport: u64,
     /// Actor slug that authored this op (namespaces display numbers).
     pub actor: String,
+    /// On-disk format version stamped on this op.
     pub format_version: u32,
+    /// The operation payload.
     pub kind: OpKind,
     /// Provenance filled in when read back from git (ignored on write).
     pub commit: Option<String>,
+    /// Commit author line, filled in when read back from git.
     pub author: Option<String>,
+    /// Commit timestamp (Unix seconds), filled in when read back from git.
     pub timestamp: Option<i64>,
 }
 
@@ -499,10 +543,12 @@ impl<T: Clone> Lww<T> {
         }
     }
 
+    /// The current value (the type default until the first write lands).
     pub fn get(&self) -> &T {
         &self.value
     }
 
+    /// Whether any write has landed on this register.
     pub fn is_set(&self) -> bool {
         self.set
     }
@@ -520,6 +566,7 @@ pub struct OrSet {
 }
 
 impl OrSet {
+    /// Add an element under a tag (op-id); idempotent per tag.
     pub fn add(&mut self, element: &str, tag: &str) {
         let entry = self.tags.entry(element.to_string()).or_default();
         if !entry.iter().any(|t| t == tag) {
@@ -527,6 +574,7 @@ impl OrSet {
         }
     }
 
+    /// Remove an element, dropping every tag observed so far for it.
     pub fn remove(&mut self, element: &str) {
         self.tags.remove(element);
     }
@@ -538,6 +586,7 @@ impl OrSet {
         self.tags.clear();
     }
 
+    /// Whether the element is present (has at least one live tag).
     pub fn contains(&self, element: &str) -> bool {
         self.tags.get(element).is_some_and(|t| !t.is_empty())
     }
@@ -561,6 +610,7 @@ pub struct LwwMap {
 }
 
 impl LwwMap {
+    /// Apply a write to one key's LWW-Register, creating the key if absent.
     pub fn apply(&mut self, key: &str, value: String, lamport: u64, op_id: &str) {
         self.inner
             .entry(key.to_string())
@@ -586,13 +636,20 @@ impl LwwMap {
     }
 }
 
+/// A single comment from the folded comment log.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Comment {
+    /// Op-id of the comment op (stable identity).
     pub id: String,
+    /// Actor slug that authored the comment.
     pub actor: String,
+    /// The comment text (latest, after any edit).
     pub text: String,
+    /// Lamport clock of the comment op (orders the log).
     pub lamport: u64,
+    /// Commit timestamp (Unix seconds), if known.
     pub timestamp: Option<i64>,
+    /// Commit author line, if known.
     pub author: Option<String>,
     /// True once an `edit-comment` op has superseded the original text.
     pub edited: bool,
@@ -600,10 +657,14 @@ pub struct Comment {
     pub hidden: bool,
 }
 
+/// The folded state value: open/closed plus the optional context recorded with it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StateVal {
+    /// Whether the issue is open or closed.
     pub state: State,
+    /// Optional reason recorded with the last state change.
     pub reason: Option<String>,
+    /// Optional commit or reference that fixed the issue.
     pub fixed_by: Option<String>,
 }
 
@@ -627,14 +688,20 @@ impl Default for StateVal {
 pub struct Issue {
     /// The issue uuid (hex, no dashes). Truth identity; ref = refs/issues/<uuid>.
     pub uuid: String,
+    /// Title (LWW-Register).
     pub title: Lww<String>,
+    /// Description (LWW-Register).
     pub description: Lww<String>,
+    /// Open/closed state with context (LWW-Register).
     pub state: Lww<StateVal>,
     /// Assignees, an OR-Set (issues can have several). Legacy single-assignee
     /// ops fold into this set.
     pub assignees: OrSet,
+    /// Priority (LWW-Register).
     pub priority: Lww<Option<String>>,
+    /// Labels (OR-Set presence).
     pub labels: OrSet,
+    /// Comment log, ordered by (lamport, op-id).
     pub comments: Vec<Comment>,
     /// Whether the issue is archived (hidden from default listings).
     pub archived: Lww<bool>,
@@ -646,8 +713,11 @@ pub struct Issue {
     pub file_notes: LwwMap,
     /// Actor that created the issue (namespaces its display number).
     pub creator: String,
+    /// Creation timestamp (Unix seconds) from the Create op, if known.
     pub created_at: Option<i64>,
+    /// Number of ops folded into this state.
     pub op_count: usize,
+    /// Highest Lamport clock seen across the folded ops.
     pub max_lamport: u64,
 }
 
@@ -801,14 +871,17 @@ impl Issue {
         Ok(issue)
     }
 
+    /// The current title.
     pub fn title(&self) -> &str {
         self.title.get()
     }
 
+    /// The current description.
     pub fn description(&self) -> &str {
         self.description.get()
     }
 
+    /// The current state value.
     pub fn state(&self) -> &StateVal {
         self.state.get()
     }
@@ -840,14 +913,17 @@ impl Issue {
             .collect()
     }
 
+    /// The current priority, if set.
     pub fn priority(&self) -> Option<&str> {
         self.priority.get().as_deref()
     }
 
+    /// The current labels (sorted).
     pub fn labels(&self) -> Vec<String> {
         self.labels.values()
     }
 
+    /// Whether the issue is archived.
     pub fn archived(&self) -> bool {
         *self.archived.get()
     }
