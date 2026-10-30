@@ -49,9 +49,9 @@ release. Additive and backward compatible.
   Mirror panekit's wall ergonomics too: a `── <name> ──` echo per sub-wall and a
   closing `═══ make check: ALL WALLS GREEN ═══` banner, and record the `COV_FLOOR`
   ratchet history as a dated in-file comment ("never lower to pass").
-- [ ] **C. Re-certify mutation** (S/M) `[qa]`. Rerun `cargo-mutants` scoped to
-  the core modules (`model`/`id`/`store`/`trailer`/`git`) and add a `make mutants`
-  convenience. The last run (84.8%) predates the `#N` commits and is stale.
+- [ ] **C. Harden the core test suite** (M) `[qa]`. Add targeted tests on the core
+  modules (`model`/`id`/`store`/`trailer`/`git`) so a regression in core logic
+  fails a test, then ratchet `COV_FLOOR` up once they land.
 - [ ] **D. CHANGELOG conventions** (S) `[pk]`. Per-release theme lines, the
   "additive and backward compatible" note, compare-link footers for each version,
   and the pre-1.0 all-patch scheme documented in the header.

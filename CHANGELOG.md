@@ -10,7 +10,7 @@ Pre-1.0, `gli` stays on a packed `0.1.x` patch line: every release is additive a
 
 ## [Unreleased]
 
-Next up is **0.1.1** (see ROADMAP.md): quality walls (gated coverage floor, mutation re-certification), a `cli.rs` refactor (extract the `ls` query and display rendering into testable units), and codebase-prefixed display numbers (`gli.display.prefix`, so solo use shows `myproject-#1` and never your name). All additive; `Format-Version` stays `1`.
+Next up is **0.1.1** (see ROADMAP.md): quality walls (a gated coverage floor, stronger core tests), a `cli.rs` refactor (extract the `ls` query and display rendering into testable units), and codebase-prefixed display numbers (`gli.display.prefix`, so solo use shows `myproject-#1` and never your name). All additive; `Format-Version` stays `1`.
 
 ## [0.1.0] - 2026-09-22
 
