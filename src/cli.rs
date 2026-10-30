@@ -303,6 +303,15 @@ recovers a repo that one bad ref had bricked.",
         fix: bool,
     },
 
+    /// Migrate issue data to the current on-disk format version.
+    #[command(
+        long_about = "Migrate issue data to the on-disk format version this build understands. \
+At the current format version there is nothing to migrate, so this reports the state and exits. \
+It is the command to run after upgrading gli, and the home for a format upgrade when one lands. \
+Read-only until a migration is required."
+    )]
+    Migrate,
+
     /// Get, set, or list per-repository defaults.
     #[command(
         long_about = "Manage per-repository defaults, stored in git config under `gli.default.*`. \
@@ -578,6 +587,7 @@ fn dispatch(command: Command) -> Result<i32> {
         Command::Restore { id } => cmd_restore(id),
         Command::Status => cmd_status(),
         Command::Fsck { fix } => cmd_fsck(fix),
+        Command::Migrate => cmd_migrate(),
         Command::Config { action } => cmd_config(action),
         Command::Completions { shell } => {
             cmd_completions(shell);
@@ -1348,6 +1358,40 @@ fn cmd_fsck(fix: bool) -> Result<i32> {
 }
 
 /// Validate that a config key is one gli understands.
+fn cmd_migrate() -> Result<i32> {
+    let backend = backend()?;
+    let cache = Cache::build(&backend)?;
+    let current = crate::model::FORMAT_VERSION;
+
+    if cache.issues.is_empty() {
+        println!("No issues to migrate.");
+        return Ok(0);
+    }
+
+    // The highest format version stamped on any operation across all issues.
+    let max_seen = cache
+        .ops
+        .values()
+        .flatten()
+        .map(|op| op.format_version)
+        .max()
+        .unwrap_or(current);
+
+    let count = cache.issues.len();
+    if max_seen > current {
+        // Data written by a newer gli. We do not downgrade it.
+        println!(
+            "{count} issue(s) include operations at format version {max_seen}, newer than this \
+             build (format version {current}). Upgrade gli to read them fully."
+        );
+    } else {
+        // At the current version there is nothing to migrate. A future breaking
+        // format change rewrites the op chains here.
+        println!("{count} issue(s) already at format version {current}. Nothing to migrate.");
+    }
+    Ok(0)
+}
+
 fn check_config_key(key: &str) -> Result<()> {
     if CONFIG_KEYS.contains(&key) {
         Ok(())

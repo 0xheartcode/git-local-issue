@@ -445,6 +445,19 @@ fn help_prints_version() {
 }
 
 #[test]
+fn migrate_is_a_noop_at_the_current_format_version() {
+    let repo = new_repo();
+    let dir = repo.path();
+    // No issues: nothing to do.
+    let (out, ok) = gli(dir, &["migrate"]);
+    assert!(ok && out.contains("No issues to migrate"), "got: {out}");
+    // With issues, it reports they are already current.
+    gli(dir, &["create", "One"]);
+    let (out, ok) = gli(dir, &["migrate"]);
+    assert!(ok && out.contains("Nothing to migrate"), "got: {out}");
+}
+
+#[test]
 fn display_prefix_scopes_handles_and_resolves() {
     let repo = new_repo();
     let dir = repo.path();
