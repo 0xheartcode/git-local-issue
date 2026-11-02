@@ -22,7 +22,8 @@ external database, no server. Issues are distributed and offline-first, and sync
 An <ID> is a display number like `1` (shown as `#1`), an actor-qualified `alice-1` when a number \
 is shared across actors, or a UUIDv7 prefix like `018f2a1c`. Numbers are recomputed on read and \
 may drift; the UUIDv7 (prefix) is the permanent handle.",
-    // Print the version in the help header too (git-bug #1535).
+    // Print the version in the help header too, drawn from the same `version`
+    // field above, so --help and --version cannot drift (git-bug #1535).
     help_template = "\
 {name} {version}
 {about-with-newline}

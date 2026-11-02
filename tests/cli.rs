@@ -526,6 +526,19 @@ fn quiet_create_and_ids_format() {
 }
 
 #[test]
+fn help_header_version_matches_version_flag() {
+    // --version and the --help header draw from one stamp; pin that they match
+    // so a future refactor cannot let them drift.
+    let repo = new_repo();
+    let (ver, ok) = gli(repo.path(), &["--version"]);
+    assert!(ok);
+    let (help, ok) = gli(repo.path(), &["--help"]);
+    assert!(ok);
+    let help_first = help.lines().next().unwrap_or("").trim();
+    assert_eq!(help_first, ver.trim(), "help header must equal --version");
+}
+
+#[test]
 fn bulk_close_reopen_with_m_alias() {
     let repo = new_repo();
     let dir = repo.path();
