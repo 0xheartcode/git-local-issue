@@ -496,6 +496,36 @@ fn init_hints_at_display_prefix_and_default_is_bare() {
 }
 
 #[test]
+fn quiet_create_and_ids_format() {
+    let repo = new_repo();
+    let dir = repo.path();
+    // Quiet create prints only the short id, and that id resolves.
+    let (out, ok) = gli(dir, &["create", "First", "-q"]);
+    assert!(ok);
+    let id = out.trim();
+    assert!(
+        !id.is_empty() && !id.contains(' '),
+        "quiet create prints only an id: {out:?}"
+    );
+    let (show, ok) = gli(dir, &["show", id, "--json"]);
+    assert!(
+        ok && show.contains("\"title\": \"First\""),
+        "id must resolve: {show}"
+    );
+
+    gli(dir, &["create", "Second"]);
+    // ls --format ids: one bare id per line.
+    let (ids, ok) = gli(dir, &["ls", "--format", "ids"]);
+    assert!(ok);
+    let lines: Vec<&str> = ids.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 2, "two bare ids expected: {ids:?}");
+    assert!(
+        lines.iter().all(|l| !l.contains(' ')),
+        "ids only, no columns: {ids:?}"
+    );
+}
+
+#[test]
 fn migrate_is_a_noop_at_the_current_format_version() {
     let repo = new_repo();
     let dir = repo.path();

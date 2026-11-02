@@ -85,6 +85,9 @@ gli create \"Slow query\" -l perf -l db -p high -a bob -d \"p95 is 3s on /search
         /// Longer description body (may be multiple lines).
         #[arg(short = 'd', long = "desc")]
         desc: Option<String>,
+        /// Print only the new issue's short id, for scripting.
+        #[arg(short = 'q', long = "quiet")]
+        quiet: bool,
     },
 
     /// List issues.
@@ -126,8 +129,9 @@ gli ls --all --format json"
         /// Sort order: newest (default), oldest, or title.
         #[arg(long, default_value = "newest", value_name = "newest|oldest|title")]
         sort: String,
-        /// Output detail: short (one line each), full, or json.
-        #[arg(long, value_name = "short|full|json")]
+        /// Output detail: short (one line each), full, json, or ids (bare short
+        /// ids, one per line, for scripting).
+        #[arg(long, value_name = "short|full|json|ids")]
         format: Option<String>,
     },
 
@@ -512,7 +516,8 @@ fn dispatch(command: Command) -> Result<i32> {
             assignee,
             priority,
             desc,
-        } => cmd_create(title, label, assignee, priority, desc),
+            quiet,
+        } => cmd_create(title, label, assignee, priority, desc, quiet),
         Command::Ls {
             state,
             label,
@@ -624,6 +629,7 @@ fn cmd_create(
     assignee: Option<String>,
     priority: Option<String>,
     desc: Option<String>,
+    quiet: bool,
 ) -> Result<i32> {
     let backend = backend()?;
 
@@ -658,7 +664,11 @@ fn cmd_create(
     )?;
     let cache = Cache::build(&backend)?;
     let display = cache.display_of(&uuid);
-    println!("Created issue {} ({})", display.handle, display.short);
+    if quiet {
+        println!("{}", display.short);
+    } else {
+        println!("Created issue {} ({})", display.handle, display.short);
+    }
     Ok(0)
 }
 
@@ -707,6 +717,14 @@ fn cmd_ls(args: LsArgs) -> Result<i32> {
     };
 
     let rows = crate::query::select(&cache.issues, &filter);
+
+    if format == "ids" {
+        // Bare short ids, one per line, for piping. Empty on no matches.
+        for issue in &rows {
+            println!("{}", cache.display_of(&issue.uuid).short);
+        }
+        return Ok(0);
+    }
 
     if format == "json" {
         println!("{}", crate::output::render_issues(&cache, &rows));
