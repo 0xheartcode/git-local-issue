@@ -60,8 +60,12 @@ A commit message has three parts, in order:
 <trailer block>   (the last paragraph; every line is a trailer)
 ```
 
-- The **subject** is a human summary (for example `Create: Fix the parser`). It
-  is not parsed for meaning; the trailers are authoritative.
+- The **subject** is a human summary (for example `Create: Fix the parser`, or
+  `Set state: closed`). It is not parsed for meaning; the trailers are
+  authoritative. **Implementers: do not read the subject as the issue title.**
+  It carries an op-kind prefix and reflects one operation, not the folded state.
+  Consume `gli ls --format json` or `gli show --json` for the title and every
+  other field.
 - The **body** is free-form UTF-8 and carries multi-line payloads: the issue
   description (for `create` and `set-description`) and the comment text (for
   `comment`).

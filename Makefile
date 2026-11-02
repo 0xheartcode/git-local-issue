@@ -13,8 +13,9 @@
 # threshold ON PURPOSE in a commit that says why. COV_FLOOR is a ratchet.
 
 # Line-coverage floor. Ratchet UP as slices land; never down to pass.
-# 2026-10-30: 85 at first, ratcheted to 86 as the 0.1.1 tests landed (measured 87.0%).
-COV_FLOOR ?= 86
+# 2026-10-30: 85, then 86 (0.1.1). 2026-11-02: ratcheted to 88 as the 0.1.2
+# tests landed (measured 88.8%).
+COV_FLOOR ?= 88
 
 .PHONY: check fmt fmt-check lint test cov-gate cov cov-html build package clean
 

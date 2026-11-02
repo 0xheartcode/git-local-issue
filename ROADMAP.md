@@ -106,7 +106,31 @@ release. Additive and backward compatible.
 
 ---
 
-## 0.1.2 - Performance
+## 0.1.2 - Ergonomics and papercuts (from real use)
+
+Theme: small, additive fixes surfaced by real multi-agent, multi-worktree use.
+Display, CLI, docs, and tests only; no format change.
+
+- [x] **Shortest-unique short ids**. The short id extends past 8 chars only as
+  far as uniqueness requires (git-abbreviation style), so same-millisecond
+  batches no longer share one misleading prefix.
+- [x] **Bulk `close`/`reopen`/`archive`/`restore`** accept several ids, plus `-m`
+  as the short alias for `--reason` (applied to every id).
+- [x] **`ls --format ids` and `create -q`** for scripting (bare stable ids).
+- [x] **Build-stamp guard**: a test pins that the `--help` header and `--version`
+  stay single-sourced.
+- [x] **Implementer note**: README and FORMAT.md say to consume `--format json`,
+  not to parse commit subjects.
+- [x] **Regression guards** for the core command surface and the JSON schema.
+- Already present (no change): a backup reminder in `gli status`.
+
+Deferred to the sync release (0.1.4): discreet issue-to-commit linking and the
+`gli hooks` automation (tracked under the `gli-issues` label), since they only
+earn their keep once issues move between clones.
+
+---
+
+## 0.1.3 - Performance
 
 Theme: faster reads, identical behaviour, the cache still disposable and never
 synced. Additive and backward compatible.
@@ -120,7 +144,7 @@ synced. Additive and backward compatible.
 
 ---
 
-## 0.1.3 - Sync (the headline gap, first multi-machine)
+## 0.1.4 - Sync (the headline gap, first multi-machine)
 
 Theme: two clones can finally exchange issues. Network stays on the git CLI
 permanently (the locked decision). Additive and backward compatible.
@@ -129,10 +153,16 @@ permanently (the locked decision). Additive and backward compatible.
   the issue refnamespace so two clones can exchange issues at all.
 - [ ] **N. Harden `status` unpushed detection** (S) `[rm]`. Make the already-
   sketched unpushed detection authoritative once real remotes exist.
+- [ ] **Discreet issue-to-commit linking** (M) `[new]`. `--fixed-by` already
+  records the link on the issue; add the reverse `gli ls --fixed-by <sha>` scan
+  plus an optional, opt-in `Closes: <uuid>` commit trailer. Lives here because
+  the link matters once issues move between clones.
+- [ ] **`gli hooks install`** (S) `[new]`. Optional git hooks: post-commit
+  `--fixed-by` (discreet) and prepare-commit-msg trailer (opt-in, public).
 
 ---
 
-## 0.1.4 - CRDT merge
+## 0.1.5 - CRDT merge
 
 Theme: fold concurrent, diverged op chains deterministically, then build the
 recovery and stability features that merge unlocks. Additive and backward
@@ -153,7 +183,7 @@ compatible.
 
 ---
 
-## 0.1.5 - Relations, threading, promote
+## 0.1.6 - Relations, threading, promote
 
 Theme: issues and comments gain structure. All additive ops on the chain.
 
@@ -167,7 +197,7 @@ Theme: issues and comments gain structure. All additive ops on the chain.
 
 ---
 
-## 0.1.6 - Heavy extensions
+## 0.1.7 - Heavy extensions
 
 Theme: attachments and everything riding their blob seam, plus verifiable
 authorship. Additive; `Format-Version` still `1`.
@@ -185,7 +215,7 @@ authorship. Additive; `Format-Version` still `1`.
 
 ---
 
-## 0.1.7 - Interop
+## 0.1.8 - Interop
 
 Theme: reference and exchange issues beyond one repo.
 
@@ -198,7 +228,7 @@ Theme: reference and exchange issues beyond one repo.
 
 ---
 
-## 0.1.8 - Optional interactive TUI
+## 0.1.9 - Optional interactive TUI
 
 Theme: a visual browse/triage layer, dogfooding panekit. Optional — drop it and
 the plan ends at 0.1.7.
