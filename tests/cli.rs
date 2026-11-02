@@ -496,6 +496,137 @@ fn init_hints_at_display_prefix_and_default_is_bare() {
 }
 
 #[test]
+fn quiet_create_and_ids_format() {
+    let repo = new_repo();
+    let dir = repo.path();
+    // Quiet create prints only the short id, and that id resolves.
+    let (out, ok) = gli(dir, &["create", "First", "-q"]);
+    assert!(ok);
+    let id = out.trim();
+    assert!(
+        !id.is_empty() && !id.contains(' '),
+        "quiet create prints only an id: {out:?}"
+    );
+    let (show, ok) = gli(dir, &["show", id, "--json"]);
+    assert!(
+        ok && show.contains("\"title\": \"First\""),
+        "id must resolve: {show}"
+    );
+
+    gli(dir, &["create", "Second"]);
+    // ls --format ids: one bare id per line.
+    let (ids, ok) = gli(dir, &["ls", "--format", "ids"]);
+    assert!(ok);
+    let lines: Vec<&str> = ids.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert_eq!(lines.len(), 2, "two bare ids expected: {ids:?}");
+    assert!(
+        lines.iter().all(|l| !l.contains(' ')),
+        "ids only, no columns: {ids:?}"
+    );
+}
+
+#[test]
+fn core_command_surface_works() {
+    // Regression guard for the properties real users rely on: the obvious
+    // commands run end to end and are learnable from help alone.
+    let repo = new_repo();
+    let dir = repo.path();
+    let (id, ok) = gli(dir, &["create", "Smoke", "-l", "bug", "-q"]);
+    assert!(ok);
+    let id = id.trim().to_string();
+    let runs: Vec<Vec<&str>> = vec![
+        vec!["ls"],
+        vec!["ls", "--format", "json"],
+        vec!["ls", "--format", "ids"],
+        vec!["show", &id],
+        vec!["edit", &id, "--add-label", "triaged"],
+        vec!["comment", &id, "a note"],
+        vec!["status"],
+        vec!["close", &id, "-m", "done"],
+    ];
+    for args in runs {
+        let (_, ok) = gli(dir, &args);
+        assert!(ok, "core command failed: {args:?}");
+    }
+}
+
+#[test]
+fn json_schema_is_stable() {
+    // Pin the --json schema keys so a field rename or drop fails loudly.
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "Schema", "-l", "bug"]);
+    let (json, ok) = gli(dir, &["show", "1", "--json"]);
+    assert!(ok);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    for key in [
+        "uuid",
+        "handle",
+        "number",
+        "nonce",
+        "short",
+        "title",
+        "description",
+        "state",
+        "reason",
+        "fixed_by",
+        "assignee",
+        "assignees",
+        "priority",
+        "labels",
+        "fields",
+        "files",
+        "archived",
+        "creator",
+        "comment_count",
+        "comments",
+    ] {
+        assert!(v.get(key).is_some(), "json schema missing key: {key}");
+    }
+}
+
+#[test]
+fn help_header_version_matches_version_flag() {
+    // --version and the --help header draw from one stamp; pin that they match
+    // so a future refactor cannot let them drift.
+    let repo = new_repo();
+    let (ver, ok) = gli(repo.path(), &["--version"]);
+    assert!(ok);
+    let (help, ok) = gli(repo.path(), &["--help"]);
+    assert!(ok);
+    let help_first = help.lines().next().unwrap_or("").trim();
+    assert_eq!(help_first, ver.trim(), "help header must equal --version");
+}
+
+#[test]
+fn bulk_close_reopen_with_m_alias() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "One"]);
+    gli(dir, &["create", "Two"]);
+    gli(dir, &["create", "Three"]);
+
+    // Close three at once, with -m as the alias for --reason (applied to all).
+    let (_, ok) = gli(dir, &["close", "1", "2", "3", "-m", "merged in PR 109"]);
+    assert!(ok);
+    let (closed, _) = gli(dir, &["ls", "--state", "closed", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&closed).unwrap();
+    assert_eq!(v.as_array().unwrap().len(), 3, "all three closed: {closed}");
+    let (show, _) = gli(dir, &["show", "1", "--json"]);
+    assert!(
+        show.contains("merged in PR 109"),
+        "reason recorded on each: {show}"
+    );
+
+    // Bulk reopen a subset.
+    let (_, ok) = gli(dir, &["reopen", "1", "2"]);
+    assert!(ok);
+    let (open, _) = gli(dir, &["ls", "--state", "open", "--format", "json"]);
+    let vo: serde_json::Value = serde_json::from_str(&open).unwrap();
+    assert_eq!(vo.as_array().unwrap().len(), 2, "two reopened: {open}");
+}
+
+#[test]
 fn migrate_is_a_noop_at_the_current_format_version() {
     let repo = new_repo();
     let dir = repo.path();

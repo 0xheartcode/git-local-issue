@@ -12,6 +12,22 @@ Pre-1.0, `gli` stays on a packed `0.1.x` patch line: every release is additive a
 
 Nothing yet. The next release continues the packed `0.1.x` line (see ROADMAP.md).
 
+## [0.1.2] - 2026-11-02
+
+Theme: ergonomics and papercuts surfaced by real multi-agent, multi-worktree use. Additive and backward compatible; `Format-Version` stays `1`.
+
+### Added
+
+- **Shortest-unique short ids**: the short id extends past 8 characters only as far as uniqueness requires (git-abbreviation style), so issues created in the same millisecond no longer share one misleading prefix.
+- **Bulk operations**: `close`, `reopen`, `archive`, and `restore` accept several ids and act on each, continuing past a bad id and returning the worst exit code.
+- **`-m` reason alias**: `-m` is a short alias for `--reason` on `state`/`close`/`reopen`, applied to every id.
+- **Scripting output**: `gli ls --format ids` prints one bare short id per line, and `gli create -q`/`--quiet` prints only the new short id.
+
+### Changed
+
+- **Implementer guidance**: README and FORMAT.md now say to consume `--format json` and not to parse commit subjects (a subject carries an op-kind prefix and reflects one operation, not the title).
+- **Regression guards**: added tests pinning short-id uniqueness, the core command surface, the JSON schema, and that the `--help` header matches `--version`.
+
 ## [0.1.1] - 2026-10-30
 
 Theme: project-prefixed display numbers, a format-migration command, and the quality walls (a gated coverage floor and a documented public API). Additive and backward compatible; `Format-Version` stays `1`.
@@ -59,6 +75,7 @@ Initial release: the local, single-user core. Issues are stored natively in Git 
 
 - SIGPIPE is reset to its default on Unix, so `gli ls | head` and `gli man | head` no longer error or panic on a closed pipe.
 
-[Unreleased]: https://github.com/0xheartcode/git-local-issue/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/0xheartcode/git-local-issue/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/0xheartcode/git-local-issue/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/0xheartcode/git-local-issue/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/0xheartcode/git-local-issue/releases/tag/v0.1.0

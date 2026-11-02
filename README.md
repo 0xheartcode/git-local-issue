@@ -53,17 +53,18 @@ multi-machine sync are planned; see [ROADMAP.md](ROADMAP.md). The on-disk
 
 ```
 gli init                       # set up refs/issues in the current repo
-gli create "title" [-l label] [-a assignee] [-p priority] [-d desc]
-gli ls [--state ...] [-l label ...] [--assignee ...] [--priority ...] [--creator ...] [-s search] [--sort newest|oldest|title] [--archived|--all] [--format short|full|json]   # alias: gli list
+gli create "title" [-l label] [-a assignee] [-p priority] [-d desc] [-q]   # -q prints only the new id
+gli ls [--state ...] [-l label ...] [--assignee ...] [--priority ...] [--creator ...] [-s search] [--sort newest|oldest|title] [--archived|--all] [--format short|full|json|ids]   # alias: gli list
 gli show <id> [--ops] [--json]  # id = number (e.g. 1), alice-1, prefixed myproject-1, or a uuidv7 prefix
 gli comment <id> ["text"]       # no text opens $EDITOR ($VISUAL, then vi)
 gli comment edit|rm|purge <id> <n> ["text"]   # edit, soft-delete, or hard-delete comment n
 gli edit <id> [--title ...] [--desc ...] [--add-label ...] [--remove-label ...] [-a ...] [--add-assignee ...] [--remove-assignee ...] [-p ...]
 gli field set|get|rm|list <id> [key] [value]   # optional free-form key/value metadata
 gli file add|note|rm|list <id> <path> [-n note]   # optional repo-relative file pointers with notes
-gli state <id> open|closed [--reason ...] [--fixed-by <sha>]   # aliases: gli close, gli reopen
-gli archive <id> [--purge]     # soft-hide an issue (alias: gli rm); --purge deletes the ref
-gli restore <id>               # un-archive a soft-hidden issue
+gli state <id> open|closed [-m reason] [--fixed-by <sha>]   # -m aliases --reason
+gli close|reopen <id>... [-m reason]   # take several ids at once (close also [--fixed-by])
+gli archive <id>... [--purge]  # soft-hide issues (alias: gli rm); --purge deletes the refs
+gli restore <id>...            # un-archive soft-hidden issues
 gli config get|set|list        # per-repo defaults under gli.default.* (priority, assignee, labels, format, display-prefix)
 gli status                     # renumber notices, integrity, and unpushed/local-only issues
 gli fsck [--fix]               # validate integrity; --fix quarantines unusable refs
@@ -99,6 +100,11 @@ field (Last-Writer-Wins register, OR-Set, grow-only comment log). The truth id i
 a UUIDv7 (`refs/issues/<uuid>`); display numbers are computed on read. Metadata
 rides on Git trailers, and the parser ignores unknown trailers and never rejects
 a higher `Format-Version`, for forward and backward compatibility.
+
+Building a tool on top of gli? Consume `gli ls --format json` or `gli show
+--json` (a stable schema). Do not parse commit subjects: a subject carries an
+op-kind prefix (`Create: <title>`, `Set state: closed`) and reflects a single
+operation, not the folded title.
 
 The full rationale is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and the
 on-disk format is specified in [FORMAT.md](FORMAT.md).

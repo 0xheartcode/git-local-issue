@@ -58,7 +58,8 @@ pub struct DisplayId {
     /// issues, else the actor-qualified `alice-#3` (only needed once several
     /// actors share a number, i.e. after a sync).
     pub handle: String,
-    /// Short uuid prefix, always a valid permanent handle.
+    /// Shortest hex prefix of the uuid that is unique across the current
+    /// issues (git-abbreviation style), always a valid permanent handle.
     pub short: String,
 }
 
@@ -99,6 +100,11 @@ pub fn assign_display_ids(issues: &[Issue], prefix: Option<&str>) -> HashMap<Str
         *number_counts.entry(*number).or_default() += 1;
     }
 
+    // Shortest unique hex prefix per uuid, so the shown short id actually
+    // identifies one issue instead of a fixed 8 chars that collide for issues
+    // minted in the same millisecond.
+    let shorts = shortest_unique_shorts(issues, SHORT_MIN);
+
     let mut out = HashMap::new();
     for (uuid, actor, number) in assigned {
         let handle = if number_counts.get(&number).copied().unwrap_or(0) > 1 {
@@ -116,7 +122,10 @@ pub fn assign_display_ids(issues: &[Issue], prefix: Option<&str>) -> HashMap<Str
             uuid.clone(),
             DisplayId {
                 nonce: format!("{actor}-{number}"),
-                short: short_prefix(&uuid),
+                short: shorts
+                    .get(&uuid)
+                    .cloned()
+                    .unwrap_or_else(|| short_prefix(&uuid)),
                 actor,
                 number,
                 handle,
@@ -129,7 +138,37 @@ pub fn assign_display_ids(issues: &[Issue], prefix: Option<&str>) -> HashMap<Str
 
 /// The shortest conventional handle prefix (8 hex chars, or the whole id).
 pub fn short_prefix(uuid: &str) -> String {
-    uuid.chars().take(8).collect()
+    uuid.chars().take(SHORT_MIN).collect()
+}
+
+/// The conventional minimum length for a short handle (git abbreviates to 7; gli
+/// uses 8), extended only as far as uniqueness requires.
+const SHORT_MIN: usize = 8;
+
+/// The shortest hex prefix that uniquely identifies each uuid among `issues`,
+/// never shorter than `min`. Mirrors how git abbreviates object hashes: sort the
+/// ids, then give each a prefix one character past its longest shared run with a
+/// neighbour. UUIDv7 ids minted in the same millisecond share a long prefix, so a
+/// fixed 8 chars would collide; this extends just enough to stay unique.
+fn shortest_unique_shorts(issues: &[Issue], min: usize) -> HashMap<String, String> {
+    let mut uuids: Vec<&str> = issues.iter().map(|i| i.uuid.as_str()).collect();
+    uuids.sort_unstable();
+    let mut out = HashMap::new();
+    for (idx, &u) in uuids.iter().enumerate() {
+        let prev = idx
+            .checked_sub(1)
+            .map_or(0, |p| common_prefix_len(uuids[p], u));
+        let next = uuids.get(idx + 1).map_or(0, |n| common_prefix_len(n, u));
+        let need = prev.max(next) + 1;
+        let len = need.clamp(min, u.len());
+        out.insert(u.to_string(), u.chars().take(len).collect());
+    }
+    out
+}
+
+/// Length of the common leading-byte run of two ascii-hex strings.
+fn common_prefix_len(a: &str, b: &str) -> usize {
+    a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count()
 }
 
 /// The outcome of resolving a user-supplied id query.
@@ -259,6 +298,28 @@ mod tests {
         assert_eq!(short_prefix("0123456789abcdef0123456789abcdef"), "01234567");
         // Shorter-than-eight ids return the whole string.
         assert_eq!(short_prefix("abc"), "abc");
+    }
+
+    #[test]
+    fn short_ids_extend_until_unique() {
+        // Two ids that share the first ten hex chars must each extend to eleven
+        // to stay distinct; an unrelated id keeps the eight-char minimum.
+        let a = format!("018f0000aa{}", "a".repeat(22));
+        let b = format!("018f0000aa{}", "b".repeat(22));
+        let c = "f".repeat(32);
+        let issues = vec![
+            issue_with(&a, "alice"),
+            issue_with(&b, "alice"),
+            issue_with(&c, "bob"),
+        ];
+        let d = assign_display_ids(&issues, None);
+        assert_eq!(d[a.as_str()].short, "018f0000aaa");
+        assert_eq!(d[b.as_str()].short, "018f0000aab");
+        assert_eq!(d[c.as_str()].short, "ffffffff");
+        assert_ne!(d[a.as_str()].short, d[b.as_str()].short);
+        // A single issue still gets the eight-char minimum.
+        let one = assign_display_ids(&[issue_with(&a, "alice")], None);
+        assert_eq!(one[a.as_str()].short, "018f0000");
     }
 
     #[test]
