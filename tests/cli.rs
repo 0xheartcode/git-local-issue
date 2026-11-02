@@ -526,6 +526,34 @@ fn quiet_create_and_ids_format() {
 }
 
 #[test]
+fn bulk_close_reopen_with_m_alias() {
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "One"]);
+    gli(dir, &["create", "Two"]);
+    gli(dir, &["create", "Three"]);
+
+    // Close three at once, with -m as the alias for --reason (applied to all).
+    let (_, ok) = gli(dir, &["close", "1", "2", "3", "-m", "merged in PR 109"]);
+    assert!(ok);
+    let (closed, _) = gli(dir, &["ls", "--state", "closed", "--format", "json"]);
+    let v: serde_json::Value = serde_json::from_str(&closed).unwrap();
+    assert_eq!(v.as_array().unwrap().len(), 3, "all three closed: {closed}");
+    let (show, _) = gli(dir, &["show", "1", "--json"]);
+    assert!(
+        show.contains("merged in PR 109"),
+        "reason recorded on each: {show}"
+    );
+
+    // Bulk reopen a subset.
+    let (_, ok) = gli(dir, &["reopen", "1", "2"]);
+    assert!(ok);
+    let (open, _) = gli(dir, &["ls", "--state", "open", "--format", "json"]);
+    let vo: serde_json::Value = serde_json::from_str(&open).unwrap();
+    assert_eq!(vo.as_array().unwrap().len(), 2, "two reopened: {open}");
+}
+
+#[test]
 fn migrate_is_a_noop_at_the_current_format_version() {
     let repo = new_repo();
     let dir = repo.path();

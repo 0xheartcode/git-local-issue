@@ -228,59 +228,64 @@ gli state alice-1 closed --fixed-by 1a2b3c4\n  gli state alice-1 open"
         #[arg(value_name = "open|closed")]
         state: String,
         /// Free-text reason for the change.
-        #[arg(long)]
+        #[arg(short = 'm', long)]
         reason: Option<String>,
         /// Commit sha that fixed the issue.
         #[arg(long = "fixed-by")]
         fixed_by: Option<String>,
     },
 
-    /// Close an issue (shorthand for `state <id> closed`).
+    /// Close one or more issues (shorthand for `state <id> closed`).
     #[command(
-        long_about = "Close an issue. Shorthand for `gli state <id> closed`, with the same \
-optional --reason and --fixed-by."
+        long_about = "Close one or more issues. Shorthand for `gli state <id> closed`, with the \
+same optional --reason/-m and --fixed-by applied to every id."
     )]
     Close {
-        #[arg(long_help = ID_HELP)]
-        id: String,
-        /// Free-text reason for closing.
-        #[arg(long)]
+        /// One or more issue ids to close.
+        #[arg(long_help = ID_HELP, required = true)]
+        ids: Vec<String>,
+        /// Free-text reason for closing (applies to every id).
+        #[arg(short = 'm', long)]
         reason: Option<String>,
         /// Commit sha that fixed the issue.
         #[arg(long = "fixed-by")]
         fixed_by: Option<String>,
     },
 
-    /// Reopen an issue (shorthand for `state <id> open`).
-    #[command(long_about = "Reopen an issue. Shorthand for `gli state <id> open`.")]
+    /// Reopen one or more issues (shorthand for `state <id> open`).
+    #[command(long_about = "Reopen one or more issues. Shorthand for `gli state <id> open`.")]
     Reopen {
-        #[arg(long_help = ID_HELP)]
-        id: String,
-        /// Free-text reason for reopening.
-        #[arg(long)]
+        /// One or more issue ids to reopen.
+        #[arg(long_help = ID_HELP, required = true)]
+        ids: Vec<String>,
+        /// Free-text reason for reopening (applies to every id).
+        #[arg(short = 'm', long)]
         reason: Option<String>,
     },
 
-    /// Archive an issue (hide it from listings; reversible).
+    /// Archive one or more issues (hide them from listings; reversible).
     #[command(
         visible_alias = "rm",
-        long_about = "Archive an issue: hide it from default listings without destroying \
-anything. This is a reversible operation (see `restore`), and the whole op log is preserved. \
-To permanently delete the underlying ref instead, pass --purge (irreversible, not sync-safe)."
+        long_about = "Archive one or more issues: hide them from default listings without \
+destroying anything. This is a reversible operation (see `restore`), and the whole op log is \
+preserved. To permanently delete the underlying refs instead, pass --purge (irreversible, not \
+sync-safe)."
     )]
     Archive {
-        #[arg(long_help = ID_HELP)]
-        id: String,
-        /// Permanently delete the issue ref instead of archiving (irreversible).
+        /// One or more issue ids to archive.
+        #[arg(long_help = ID_HELP, required = true)]
+        ids: Vec<String>,
+        /// Permanently delete the issue refs instead of archiving (irreversible).
         #[arg(long)]
         purge: bool,
     },
 
-    /// Restore a previously archived issue.
-    #[command(long_about = "Restore an archived issue so it appears in listings again.")]
+    /// Restore one or more previously archived issues.
+    #[command(long_about = "Restore archived issues so they appear in listings again.")]
     Restore {
-        #[arg(long_help = ID_HELP)]
-        id: String,
+        /// One or more issue ids to restore.
+        #[arg(long_help = ID_HELP, required = true)]
+        ids: Vec<String>,
     },
 
     /// Repository health: renumber notices, integrity, and local-only issues.
@@ -583,13 +588,13 @@ fn dispatch(command: Command) -> Result<i32> {
             fixed_by,
         } => cmd_state(id, state, reason, fixed_by),
         Command::Close {
-            id,
+            ids,
             reason,
             fixed_by,
-        } => cmd_state(id, "closed".to_string(), reason, fixed_by),
-        Command::Reopen { id, reason } => cmd_state(id, "open".to_string(), reason, None),
-        Command::Archive { id, purge } => cmd_archive(id, purge),
-        Command::Restore { id } => cmd_restore(id),
+        } => cmd_state_many(ids, "closed", reason, fixed_by),
+        Command::Reopen { ids, reason } => cmd_state_many(ids, "open", reason, None),
+        Command::Archive { ids, purge } => cmd_archive_many(ids, purge),
+        Command::Restore { ids } => cmd_restore_many(ids),
         Command::Status => cmd_status(),
         Command::Fsck { fix } => cmd_fsck(fix),
         Command::Migrate => cmd_migrate(),
@@ -1212,6 +1217,57 @@ fn cmd_state(
         target.as_str()
     );
     Ok(0)
+}
+
+/// Apply a state change to several issues, continuing past a bad id and
+/// returning the worst exit code. The reason and fixed-by apply to every id.
+fn cmd_state_many(
+    ids: Vec<String>,
+    state: &str,
+    reason: Option<String>,
+    fixed_by: Option<String>,
+) -> Result<i32> {
+    let mut code = 0;
+    for id in ids {
+        match cmd_state(id, state.to_string(), reason.clone(), fixed_by.clone()) {
+            Ok(c) => code = code.max(c),
+            Err(e) => {
+                eprintln!("gli: {e}");
+                code = 1;
+            }
+        }
+    }
+    Ok(code)
+}
+
+/// Archive several issues, continuing past a bad id (worst exit code wins).
+fn cmd_archive_many(ids: Vec<String>, purge: bool) -> Result<i32> {
+    let mut code = 0;
+    for id in ids {
+        match cmd_archive(id, purge) {
+            Ok(c) => code = code.max(c),
+            Err(e) => {
+                eprintln!("gli: {e}");
+                code = 1;
+            }
+        }
+    }
+    Ok(code)
+}
+
+/// Restore several issues, continuing past a bad id (worst exit code wins).
+fn cmd_restore_many(ids: Vec<String>) -> Result<i32> {
+    let mut code = 0;
+    for id in ids {
+        match cmd_restore(id) {
+            Ok(c) => code = code.max(c),
+            Err(e) => {
+                eprintln!("gli: {e}");
+                code = 1;
+            }
+        }
+    }
+    Ok(code)
 }
 
 fn cmd_archive(id: String, purge: bool) -> Result<i32> {
