@@ -526,6 +526,66 @@ fn quiet_create_and_ids_format() {
 }
 
 #[test]
+fn core_command_surface_works() {
+    // Regression guard for the properties real users rely on: the obvious
+    // commands run end to end and are learnable from help alone.
+    let repo = new_repo();
+    let dir = repo.path();
+    let (id, ok) = gli(dir, &["create", "Smoke", "-l", "bug", "-q"]);
+    assert!(ok);
+    let id = id.trim().to_string();
+    let runs: Vec<Vec<&str>> = vec![
+        vec!["ls"],
+        vec!["ls", "--format", "json"],
+        vec!["ls", "--format", "ids"],
+        vec!["show", &id],
+        vec!["edit", &id, "--add-label", "triaged"],
+        vec!["comment", &id, "a note"],
+        vec!["status"],
+        vec!["close", &id, "-m", "done"],
+    ];
+    for args in runs {
+        let (_, ok) = gli(dir, &args);
+        assert!(ok, "core command failed: {args:?}");
+    }
+}
+
+#[test]
+fn json_schema_is_stable() {
+    // Pin the --json schema keys so a field rename or drop fails loudly.
+    let repo = new_repo();
+    let dir = repo.path();
+    gli(dir, &["create", "Schema", "-l", "bug"]);
+    let (json, ok) = gli(dir, &["show", "1", "--json"]);
+    assert!(ok);
+    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+    for key in [
+        "uuid",
+        "handle",
+        "number",
+        "nonce",
+        "short",
+        "title",
+        "description",
+        "state",
+        "reason",
+        "fixed_by",
+        "assignee",
+        "assignees",
+        "priority",
+        "labels",
+        "fields",
+        "files",
+        "archived",
+        "creator",
+        "comment_count",
+        "comments",
+    ] {
+        assert!(v.get(key).is_some(), "json schema missing key: {key}");
+    }
+}
+
+#[test]
 fn help_header_version_matches_version_flag() {
     // --version and the --help header draw from one stamp; pin that they match
     // so a future refactor cannot let them drift.
